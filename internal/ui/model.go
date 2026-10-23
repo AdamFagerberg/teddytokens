@@ -27,6 +27,7 @@ const (
 	maxFrameDT   = 0.1  // seconds; longer gaps (e.g. a suspended terminal) are clamped
 	spawnSpeed   = 50.0 // max |vx| of a new character, px/s
 	settleSteps  = 30 * 60
+	rainPiles    = 3 // most piles' worth of characters a burst rains down
 )
 
 // Source reports tokens added since its previous call. It is only ever
@@ -59,17 +60,22 @@ var tierScale = [...]int{small: 1, big: 5, giant: 8}
 // skin caches one character's tinted sprites so toggling never re-tints.
 type skin struct{ claude, teddy *sprites.Sprite }
 
-// char is a character on screen. Its body's size is its sprites' size.
+// char is a character on screen. Its body's size is its sprites' size for
+// the way the body has tipped.
 type char struct {
 	body    *physics.Body
 	tier    int
 	tint    float64
-	skin    skin // tinted at the tier's current scale
+	skins   [3]skin // by body turn + 1: tipped left, upright, tipped right
 	merging bool
 }
 
+// size is the body's size, or the upright sprite's before it has a body.
 func (c *char) size() (w, h int) {
-	return c.skin.claude.W, c.skin.claude.H
+	if c.body != nil {
+		return c.body.Size()
+	}
+	return c.skins[1].claude.W, c.skins[1].claude.H
 }
 
 func (c *char) centre() (x, y float64) {
@@ -274,19 +280,24 @@ func (m *Model) newChar(tier int) *char {
 	return c
 }
 
-// reskin tints c's sprites at its tier's scale for the current world.
+// reskin tints c's sprites at its tier's scale for the current world, in
+// every orientation.
 func (m *Model) reskin(c *char) {
 	k := m.scale(c.tier)
-	c.skin = skin{sprites.Claude.Tinted(c.tint).Scaled(k), sprites.Teddy.Tinted(c.tint).Scaled(k)}
+	claude, teddy := sprites.Claude.Tinted(c.tint).Scaled(k), sprites.Teddy.Tinted(c.tint).Scaled(k)
+	for i := range c.skins {
+		c.skins[i] = skin{claude.Rotated(i - 1), teddy.Rotated(i - 1)}
+	}
 }
 
 // fit gives c a new body if the world's size changed its tier's scale.
 func (m *Model) fit(c *char) {
-	if c.skin.claude.W == m.scale(c.tier)*sprites.Claude.W {
+	if c.skins[1].claude.W == m.scale(c.tier)*sprites.Claude.W {
 		return
 	}
 	x, y := c.centre()
 	m.world.Remove(c.body)
+	c.body = nil // comes back upright
 	m.reskin(c)
 	m.place(c, x, y)
 }
@@ -299,8 +310,11 @@ func (m *Model) place(c *char, x, y float64) {
 	left := max(0, min(ww-w, int(math.Round(x-float64(w)/2))))
 	top := y - float64(h)/2
 	for _, o := range m.chars {
+		if o == c {
+			continue
+		}
 		ox, oy := o.body.Pos()
-		if ow, _ := o.size(); o != c && ox < left+w && left < ox+ow {
+		if ow, _ := o.size(); ox < left+w && left < ox+ow {
 			top = min(top, float64(oy-h))
 		}
 	}
@@ -354,6 +368,9 @@ func (m *Model) replay() {
 		return
 	}
 	m.world.Clear()
+	for _, c := range m.chars {
+		c.body = nil // everyone falls again upright
+	}
 	m.dropRows(m.chars, 0)
 }
 
@@ -390,11 +407,11 @@ func (m *Model) frame(now time.Time) {
 		m.stepMerge()
 		return
 	}
-	// More than a pile's worth would rain for minutes; turn the full piles
-	// it would fill into bigs and giants, as at startup, and rain the rest.
-	if m.spawn.queue > pileCapacity(m.world.Size()) {
-		var cs []*char
-		cs, m.spawn.queue = m.pileUp(m.spawn.queue)
+	// A burst rains down in full up to rainPiles piles' worth; the piles
+	// beyond that become bigs and giants straight away, as at startup.
+	if rain := rainPiles * pileCapacity(m.world.Size()); m.spawn.queue > rain {
+		cs, rest := m.pileUp(m.spawn.queue - rain)
+		m.spawn.queue = rain + rest
 		m.dropRows(cs, 0)
 		m.chars = append(m.chars, cs...)
 	}
@@ -499,9 +516,10 @@ func (m *Model) render() string {
 			x += int(math.Round((g.x - cx) * g.progress))
 			y += int(math.Round((g.y - cy) * g.progress))
 		}
-		sp := c.skin.claude
+		s := c.skins[c.body.Turn()+1]
+		sp := s.claude
 		if m.teddy {
-			sp = c.skin.teddy
+			sp = s.teddy
 		}
 		m.canvas.Blit(sp, x, y)
 	}

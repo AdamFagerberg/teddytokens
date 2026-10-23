@@ -1,7 +1,12 @@
 package ui
 
-// releaseRate is how many queued characters fall per second during a burst.
-const releaseRate = 4.0
+const (
+	// releaseRate is the slowest that queued characters fall, per second.
+	releaseRate = 4.0
+	// burstTime is about how long a burst takes to fall: bigger bursts
+	// fall faster.
+	burstTime = 2.0
+)
 
 // spawner turns token deltas into characters and releases queued
 // characters at a steady rate, so a large burst of tokens rains in over a
@@ -11,6 +16,7 @@ type spawner struct {
 	carry  int64   // tokens counted toward the next character
 	queue  int     // characters waiting to fall
 	credit float64 // release allowance accumulated while the queue is busy
+	rate   float64 // characters per second for the current burst
 }
 
 // add counts tokens and queues one character per full `per` tokens.
@@ -18,6 +24,7 @@ func (s *spawner) add(tokens int64) {
 	s.carry += tokens
 	s.queue += int(s.carry / s.per)
 	s.carry %= s.per
+	s.rate = max(releaseRate, float64(s.queue)/burstTime)
 }
 
 // progress is the fraction of the way to the next character, in [0, 1).
@@ -32,7 +39,7 @@ func (s *spawner) release(dt float64) int {
 		s.credit = 1
 		return 0
 	}
-	s.credit += dt * releaseRate
+	s.credit += dt * s.rate
 	n := min(s.queue, int(s.credit))
 	s.credit -= float64(n)
 	s.queue -= n

@@ -206,7 +206,7 @@ func TestOffCentreLandingSkidsSideways(t *testing.T) {
 		name   string
 		offset float64
 		dir    int
-	}{{"left", -5, -1}, {"centred", 0, 0}, {"right", 5, 1}} {
+	}{{"left", -3, -1}, {"centred", 0, 0}, {"right", 3, 1}} {
 		w := NewWorld(120, 80)
 		w.AddBody(50, 80-bh, bw, bh, 0)
 		w.Settle(600)
@@ -218,4 +218,38 @@ func TestOffCentreLandingSkidsSideways(t *testing.T) {
 			t.Errorf("%s landing moved %d px sideways", tc.name, moved)
 		}
 	}
+}
+
+func TestOverhangingLandingTipsOntoItsSide(t *testing.T) {
+	for _, dir := range []int{-1, 1} {
+		w := NewWorld(120, 80)
+		w.AddBody(50, 80-bh, bw, bh, 0)
+		w.Settle(600)
+		top := w.AddBody(50+float64(dir*6), 20, bw, bh, 0)
+		if !w.Settle(3000) {
+			t.Fatal("did not settle")
+		}
+		if gw, gh := top.Size(); top.Turn() != dir || gw != bh || gh != bw {
+			t.Errorf("dir %d: turn %d, size %dx%d; want tipped %dx%d", dir, top.Turn(), gw, gh, bh, bw)
+		}
+		checkPile(t, w)
+	}
+}
+
+func TestBlockedTipSlidesUpright(t *testing.T) {
+	w := NewWorld(120, 80)
+	w.AddBody(50, 80-bh, bw, bh, 0)
+	// A low box beside the support fills the space the tipped body would
+	// need without holding it up.
+	w.AddBody(50+bw+1, 80-3, bw, 3, 0)
+	w.Settle(600)
+	top := w.AddBody(50+6, 20, bw, bh, 0)
+	w.Settle(3000)
+	if top.Turn() != 0 {
+		t.Fatalf("tipped into an occupied space, turn %d", top.Turn())
+	}
+	if x, _ := top.Pos(); x <= 56 {
+		t.Fatalf("overhanging body stayed at x=%d instead of sliding off", x)
+	}
+	checkPile(t, w)
 }

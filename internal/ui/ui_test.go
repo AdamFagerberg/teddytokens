@@ -59,8 +59,8 @@ func TestSpawnerRelease(t *testing.T) {
 	for range 4 { // one second
 		got += s.release(0.25)
 	}
-	if got != int(releaseRate) {
-		t.Fatalf("released %d in one second, want %v", got, releaseRate)
+	if got != 20/burstTime { // a burst of 20 falls in burstTime seconds
+		t.Fatalf("released %d in one second, want %v", got, 20/burstTime)
 	}
 	for s.queue > 0 {
 		s.release(0.1)
@@ -133,9 +133,9 @@ func TestKeys(t *testing.T) {
 		_, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		return cmd
 	}
-	before := m.chars[0].skin
+	before := m.chars[0].skins
 	press('t')
-	if !m.teddy || m.chars[0].skin != before || !m.world.Settled() {
+	if !m.teddy || m.chars[0].skins != before || !m.world.Settled() {
 		t.Fatal("t should re-skin in place without touching physics")
 	}
 	m.merge = &merge{}
@@ -150,7 +150,7 @@ func TestKeys(t *testing.T) {
 		t.Fatal("s should wake the pile")
 	}
 	press('r')
-	if len(m.world.Bodies()) != 5 || m.chars[0].skin != before {
+	if len(m.world.Bodies()) != 5 || m.chars[0].skins != before {
 		t.Fatal("r should drop the same characters again")
 	}
 	for _, b := range m.world.Bodies() {
@@ -256,13 +256,18 @@ func TestFourBigsLeaveOneOver(t *testing.T) {
 func TestBigBurstBecomesPiles(t *testing.T) {
 	m := newTestModel(0)
 	capacity := pileCapacity(m.world.Size())
-	m.Update(pollMsg{delta: 10_000 * int64(10*capacity+3)}) // 10 piles: 3 giants and a big
-	runUntil(t, m, func() bool { return len(m.chars) == 3 })
-	if m.giants != 3 || len(m.chars) != 3 || m.chars[0].tier != giant || m.chars[1].tier != big {
-		t.Fatalf("giants %d, %d characters", m.giants, len(m.chars))
+	// 10 piles and 3: rainPiles of them rain, the other 7 make 2 giants and a big.
+	m.Update(pollMsg{delta: 10_000 * int64(10*capacity+3)})
+	m.frame(time.Unix(0, 0))
+	var n [len(tierScale)]int
+	for _, c := range m.chars {
+		n[c.tier]++
 	}
-	if m.spawn.queue != 2 { // the first of the 3 left over has fallen
-		t.Fatalf("queue %d, want 2", m.spawn.queue)
+	if m.giants != 2 || n[giant] != 1 || n[big] != 1 {
+		t.Fatalf("giants %d, characters per tier %v", m.giants, n)
+	}
+	if raining := m.spawn.queue + n[small]; raining != rainPiles*capacity+3 {
+		t.Fatalf("%d characters raining, want %d", raining, rainPiles*capacity+3)
 	}
 }
 

@@ -44,7 +44,8 @@ const (
 	// the side the body hit, so off-centre landings skid off and scatter.
 	deflect = 0.8
 	// tipAccel pushes a body whose centre overhangs its support off the
-	// edge, so piles slump instead of balancing on corners.
+	// edge, so piles slump instead of balancing on corners. An upright body
+	// tips onto its side over the edge instead when there is room.
 	tipAccel = gravity
 )
 
@@ -63,11 +64,24 @@ type Body struct {
 	supHi      float64 // right end of that span
 	leanL      bool    // a body or wall touches its left side
 	leanR      bool    // a body or wall touches its right side
+	turn       int     // 0 upright, 1 or -1 tipped a quarter turn right or left
+	landed     bool    // hit a body below it hard this step
 }
 
 // Pos returns the body's top-left corner rounded to whole pixels.
 func (b *Body) Pos() (x, y int) {
 	return int(math.Round(b.x)), int(math.Round(b.y))
+}
+
+// Size returns the body's width and height, swapped once it has tipped.
+func (b *Body) Size() (w, h int) {
+	return int(b.w), int(b.h)
+}
+
+// Turn is 0 for an upright body, 1 once it has tipped onto its side to the
+// right (clockwise) and -1 to the left.
+func (b *Body) Turn() int {
+	return b.turn
 }
 
 func (b *Body) wake() {
@@ -240,7 +254,7 @@ func (w *World) Step(dt float64) {
 		b.vy = min(b.vy+gravity*dt, maxSpeed)
 		b.x += b.vx * dt
 		b.y += b.vy * dt
-		b.floor, b.wall = false, 0
+		b.floor, b.wall, b.landed = false, 0, false
 	}
 	w.findPairs()
 	w.contacts = w.contacts[:0]
@@ -390,6 +404,7 @@ func (w *World) updateVelocities(dt float64) {
 		*at += d * c.wa / sum
 		*bt -= d * c.wb / sum
 		if c.vertical && c.approach > bounceThreshold && c.wa > 0 {
+			a.landed = true
 			off := (a.x + a.w/2) - (b.x + b.w/2)
 			a.vx += deflect * c.approach * max(-1, min(1, off/(b.w/2)))
 		}
@@ -400,15 +415,50 @@ func (w *World) updateVelocities(dt float64) {
 			continue
 		}
 		if cx := b.x + b.w/2; !b.floor && b.supLo <= b.supHi {
-			if cx < b.supLo && !b.leanL {
+			if cx < b.supLo && !b.leanL && !w.tip(b, -1, b.supLo) {
 				b.vx -= tipAccel * dt
-			} else if cx > b.supHi && !b.leanR {
+			} else if cx > b.supHi && !b.leanR && !w.tip(b, 1, b.supHi) {
 				b.vx += tipAccel * dt
 			}
 		}
 		b.vx = max(-maxSpeed, min(maxSpeed, b.vx))
 		b.vy = max(-maxSpeed, min(maxSpeed, b.vy))
 	}
+}
+
+// tip turns an upright body a quarter over the support edge at x, toward
+// dir, so it hangs down beside its support on its side. It reports false,
+// leaving b alone, if b has already tipped or the turned box would overlap
+// a wall, the floor or another body. Only a body that has just landed
+// tips; one resting on an edge stays put.
+func (w *World) tip(b *Body, dir int, edge float64) bool {
+	if b.turn != 0 || !b.landed {
+		return false
+	}
+	// Rotate the box about the bottom corner on the edge: the part that
+	// overhangs ends up below the pivot.
+	pivotY := b.y + b.h
+	nx := edge
+	ny := pivotY + (b.x - edge)
+	if dir < 0 {
+		nx = edge - b.h
+		ny = pivotY + (edge - (b.x + b.w))
+	}
+	nw, nh := b.h, b.w
+	if nx < 0 || nx+nw > w.w || ny+nh > w.h {
+		return false
+	}
+	for _, o := range w.bodies {
+		if o != b && nx < o.x+o.w && o.x < nx+nw && ny < o.y+o.h && o.y < ny+nh {
+			return false
+		}
+	}
+	b.x, b.y, b.w, b.h = nx, ny, nw, nh
+	b.px, b.py = nx, ny
+	b.vx, b.vy = 0, 0
+	b.turn = dir
+	b.wake()
+	return true
 }
 
 // findSupports records, for every body, the horizontal span of the bodies

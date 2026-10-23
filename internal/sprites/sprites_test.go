@@ -84,3 +84,17 @@ func TestScaled(t *testing.T) {
 		t.Errorf("Claude.Scaled(5) is %dx%d", big.W, big.H)
 	}
 }
+
+func TestRotated(t *testing.T) {
+	red, blue := hex(0xFF0000), hex(0x0000FF)
+	s := &Sprite{W: 2, H: 1, pix: []Color{red, blue}} // red left, blue right
+	if cw := s.Rotated(1); cw.W != 1 || cw.H != 2 || !slices.Equal(cw.pix, []Color{red, blue}) {
+		t.Errorf("Rotated(1) = %dx%d %v, want red on top", cw.W, cw.H, cw.pix)
+	}
+	if ccw := s.Rotated(-1); !slices.Equal(ccw.pix, []Color{blue, red}) {
+		t.Errorf("Rotated(-1) = %v, want blue on top", ccw.pix)
+	}
+	if back := Claude.Rotated(1).Rotated(-1); back.W != Claude.W || !slices.Equal(back.pix, Claude.pix) {
+		t.Error("a turn and its reverse should give the original sprite")
+	}
+}
