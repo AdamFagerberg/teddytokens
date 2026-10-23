@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: teddytokens
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - binary: teddytokens
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [README.md, LICENSE]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
+
+# Homebrew: GoReleaser v2 deprecated `brews:` (formulae) in favour of
+# `homebrew_casks:` for prebuilt binaries, and `goreleaser check` fails on the
+# deprecated key. Users install with:
+#   brew install --cask AdamFagerberg/tap/teddytokens
+homebrew_casks:
+  - name: teddytokens
+    # TODO(adam): confirm the tap repo. It must exist before the first
+    # release, and HOMEBREW_TAP_GITHUB_TOKEN needs write access to it.
+    repository:
+      owner: AdamFagerberg
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/AdamFagerberg/teddytokens
+    description: Watch your Claude Code token spend pile up as falling pixel-art characters
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    hooks:
+      post:
+        # The binary is not notarized; drop the quarantine flag so macOS
+        # Gatekeeper doesn't block it on first run.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/teddytokens"]
+          end
