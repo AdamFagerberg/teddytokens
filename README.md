@@ -107,35 +107,6 @@ go test -race ./...
 golangci-lint run ./...
 ```
 
-## Releasing
-
-1. Tag and push. The release workflow runs GoReleaser and publishes a GitHub
-   release with darwin/linux amd64/arm64 archives and `checksums.txt`:
-
-   ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-   Try the build locally with `goreleaser release --snapshot --clean`.
-
-2. Update the Homebrew tap
-   ([AdamFagerberg/homebrew-tap](https://github.com/AdamFagerberg/homebrew-tap)).
-   The formula builds from the tag's source tarball. For the first release,
-   copy `packaging/homebrew/teddytokens.rb` to `Formula/teddytokens.rb` in the
-   tap, set the version in `url` and fill in `sha256`:
-
-   ```sh
-   curl -sL https://github.com/AdamFagerberg/teddytokens/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
-   ```
-
-   Open a PR so the tap's test-bot builds bottles, then publish them with the
-   `pr-pull` workflow. For later versions:
-
-   ```sh
-   brew bump-formula-pr --url https://github.com/AdamFagerberg/teddytokens/archive/refs/tags/vX.Y.Z.tar.gz adamfagerberg/tap/teddytokens
-   ```
-
 ## License
 
 MIT
