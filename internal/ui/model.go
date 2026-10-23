@@ -208,6 +208,12 @@ func (m *Model) resize(width, height int) {
 	cols, rows := m.playSize()
 	m.canvas = sprites.NewCanvas(cols, rows)
 	if m.world != nil {
+		// A merge's target is in the old world's coordinates; drop it and
+		// let the next frame start again if the pile is still full.
+		m.merge = nil
+		for _, c := range m.chars {
+			c.merging = false
+		}
 		m.world.Resize(cols, 2*rows)
 		for _, c := range m.chars {
 			m.fit(c)

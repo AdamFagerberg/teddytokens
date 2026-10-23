@@ -206,6 +206,23 @@ func TestPileAtTopMergesIntoBig(t *testing.T) {
 	}
 }
 
+func TestResizeDuringMergeStaysInside(t *testing.T) {
+	m := newTestModel(0)
+	_, floor := m.world.Size()
+	h := sprites.Claude.H
+	for i := range floor/h + 1 {
+		addChar(m, small, 0, float64(floor-(i+1)*h))
+	}
+	m.world.Settle(600)
+	runUntil(t, m, func() bool { return m.merge != nil })
+	m.Update(tea.WindowSizeMsg{Width: 30, Height: 10})
+	if m.merge != nil {
+		t.Fatal("resize should cancel the merge")
+	}
+	runUntil(t, m, func() bool { return m.merge == nil && m.world.Settled() })
+	checkChars(t, m, true)
+}
+
 func TestThreeBigsMakeOneGiant(t *testing.T) {
 	m := newTestModel(0)
 	for round := 1; round <= 2; round++ {
