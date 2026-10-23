@@ -15,6 +15,7 @@
 package physics
 
 import (
+	"cmp"
 	"math"
 	"slices"
 )
@@ -62,16 +63,6 @@ type Body struct {
 // Pos returns the body's top-left corner rounded to whole pixels.
 func (b *Body) Pos() (x, y int) {
 	return int(math.Round(b.x)), int(math.Round(b.y))
-}
-
-// Size returns the body's width and height in pixels.
-func (b *Body) Size() (w, h int) {
-	return int(b.w), int(b.h)
-}
-
-// Asleep reports whether the body is resting and excluded from simulation.
-func (b *Body) Asleep() bool {
-	return b.asleep
 }
 
 func (b *Body) wake() {
@@ -245,7 +236,7 @@ func (w *World) Step(dt float64) {
 // overlap, ordered bottom-up so support propagates in a single sweep.
 func (w *World) findPairs() {
 	w.order = append(w.order[:0], w.bodies...)
-	slices.SortFunc(w.order, func(a, b *Body) int { return cmpFloat(a.x, b.x) })
+	slices.SortFunc(w.order, func(a, b *Body) int { return cmp.Compare(a.x, b.x) })
 	w.pairs = w.pairs[:0]
 	for i, a := range w.order {
 		for _, b := range w.order[i+1:] {
@@ -259,18 +250,8 @@ func (w *World) findPairs() {
 		}
 	}
 	slices.SortFunc(w.pairs, func(p, q pair) int {
-		return cmpFloat(max(q.a.y+q.a.h, q.b.y+q.b.h), max(p.a.y+p.a.h, p.b.y+p.b.h))
+		return cmp.Compare(max(q.a.y+q.a.h, q.b.y+q.b.h), max(p.a.y+p.a.h, p.b.y+p.b.h))
 	})
-}
-
-func cmpFloat(a, b float64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 // clampAll keeps awake bodies inside the walls and above the floor.

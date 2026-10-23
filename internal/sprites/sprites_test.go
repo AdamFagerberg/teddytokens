@@ -20,7 +20,7 @@ func TestSpritesShareFootprint(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	red, blue := Hex(0xFF0000), Hex(0x0000FF)
+	red, blue := hex(0xFF0000), hex(0x0000FF)
 	s := &Sprite{W: 3, H: 2, pix: []Color{
 		red, red, {},
 		red, blue, blue,

@@ -26,7 +26,7 @@ func checkPile(t *testing.T, w *World) {
 	bodies := w.Bodies()
 	for i, a := range bodies {
 		ax, ay := a.Pos()
-		if !a.Asleep() {
+		if !a.asleep {
 			t.Errorf("body %d at %d,%d is awake", i, ax, ay)
 		}
 		if ax < 0 || ay < 0 || ax+bw > width || ay+bh > height {
@@ -119,7 +119,7 @@ func TestImpactWakesSleeper(t *testing.T) {
 	w.AddBody(10, 0, bw, bh, 0)
 	for range 200 {
 		w.Step(TimeStep)
-		if !base.Asleep() {
+		if !base.asleep {
 			return
 		}
 	}

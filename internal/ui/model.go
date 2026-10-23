@@ -46,8 +46,12 @@ type Config struct {
 type skin struct{ claude, teddy *sprites.Sprite }
 
 // squash is the pile-reached-the-top animation: scale springs from 1 to 0
-// while the pile sinks into the floor, then the world is cleared.
-type squash struct{ scale, vel float64 }
+// while the pile sinks into the floor, then the world is cleared. counts is
+// false when the pile only overflowed because the terminal shrank.
+type squash struct {
+	scale, vel float64
+	counts     bool
+}
 
 type (
 	frameMsg time.Time
@@ -76,13 +80,11 @@ type Model struct {
 	skins         []skin // parallel to world.Bodies()
 	last          time.Time
 	acc           float64 // unsimulated time, seconds
+	resized       bool    // the pile has not settled since a resize
 
-	squash        *squash
-	squashSpring  harmonica.Spring
-	cleared       int
-	shown         float64 // eased ×N counter
-	shownVel      float64
-	counterSpring harmonica.Spring
+	squash       *squash
+	squashSpring harmonica.Spring
+	cleared      int
 
 	bar  progress.Model
 	help help.Model
@@ -92,14 +94,13 @@ type Model struct {
 // New builds the model. Nothing is drawn until the first WindowSizeMsg.
 func New(cfg Config) *Model {
 	m := &Model{
-		src:           cfg.Source,
-		rng:           rand.New(rand.NewPCG(cfg.Seed, cfg.Seed^0x9e3779b97f4a7c15)),
-		scope:         cfg.Scope,
-		teddy:         cfg.Teddy,
-		total:         cfg.Initial,
-		spawn:         spawner{per: cfg.Per},
-		squashSpring:  harmonica.NewSpring(harmonica.FPS(fps), 9, 0.55),
-		counterSpring: harmonica.NewSpring(harmonica.FPS(fps), 6, 1),
+		src:          cfg.Source,
+		rng:          rand.New(rand.NewPCG(cfg.Seed, cfg.Seed^0x9e3779b97f4a7c15)),
+		scope:        cfg.Scope,
+		teddy:        cfg.Teddy,
+		total:        cfg.Initial,
+		spawn:        spawner{per: cfg.Per},
+		squashSpring: harmonica.NewSpring(harmonica.FPS(fps), 9, 0.55),
 		bar: progress.New(progress.WithWidth(12), progress.WithoutPercentage(),
 			progress.WithColors(accent)),
 		help: help.New(),
@@ -144,6 +145,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.total += msg.delta
 		m.spawn.add(msg.delta)
+		if m.world != nil {
+			// More than a pile's worth would rain for minutes; count the
+			// full piles it would fill, as at startup, and rain the rest.
+			if c := pileCapacity(m.world.Size()); m.spawn.queue > c {
+				m.cleared += m.spawn.queue / c
+				m.spawn.queue %= c
+			}
+		}
 		return m, m.pollCmd()
 	case frameMsg:
 		m.frame(time.Time(msg))
@@ -159,7 +168,7 @@ func (m *Model) playSize() (cols, rows int) {
 
 func (m *Model) tooSmall() bool {
 	cols, rows := m.playSize()
-	return cols < 2*sprites.Claude.W || 2*rows < 2*sprites.Claude.H
+	return cols < 2*sprites.Claude.W || rows < sprites.Claude.H
 }
 
 func (m *Model) resize(width, height int) {
@@ -171,15 +180,19 @@ func (m *Model) resize(width, height int) {
 	m.canvas = sprites.NewCanvas(cols, rows)
 	if m.world != nil {
 		m.world.Resize(cols, 2*rows)
+		m.resized = true
 		return
 	}
 	m.world = physics.NewWorld(cols, 2*rows)
 	if m.initial > 0 {
 		// A long history would bury the screen many times over; count the
 		// piles it would have filled and only lay down the remainder.
-		piles, rest := splitPiles(m.initial, pileCapacity(cols, 2*rows))
-		m.cleared, m.initial = piles, rest
+		c := pileCapacity(cols, 2*rows)
+		m.cleared, m.initial = m.initial/c, m.initial%c
 		m.dropRows(m.initial, float64(2*rows))
+		for range m.initial {
+			m.addSkin()
+		}
 		m.world.Settle(settleSteps)
 	}
 	m.initial = -1
@@ -191,13 +204,8 @@ func pileCapacity(w, h int) int {
 	return max(1, (w/sprites.Claude.W)*(h/sprites.Claude.H)/3)
 }
 
-// splitPiles splits n characters into full piles and a remainder.
-func splitPiles(n, capacity int) (piles, rest int) {
-	return n / capacity, n % capacity
-}
-
 // dropRows adds n bodies in loose rows stacked upward from bottom, with
-// random gaps so the rows don't settle into a flat wall.
+// random gaps so the rows don't settle into a flat wall. It adds no skins.
 func (m *Model) dropRows(n int, bottom float64) {
 	ww, _ := m.world.Size()
 	sw, sh := sprites.Claude.W, sprites.Claude.H
@@ -208,7 +216,7 @@ func (m *Model) dropRows(n int, bottom float64) {
 		x := 0.0
 		for range k {
 			x += m.rng.Float64() * slack / float64(k)
-			m.addBody(x, y, 0)
+			m.world.AddBody(x, y, sw, sh, 0)
 			x += float64(sw)
 		}
 		n -= k
@@ -217,6 +225,11 @@ func (m *Model) dropRows(n int, bottom float64) {
 
 func (m *Model) addBody(x, y, vx float64) {
 	m.world.AddBody(x, y, sprites.Claude.W, sprites.Claude.H, vx)
+	m.addSkin()
+}
+
+// addSkin tints a new skin for the next body.
+func (m *Model) addSkin() {
 	f := (m.rng.Float64()*2 - 1) * sprites.MaxVariation
 	m.skins = append(m.skins, skin{sprites.Claude.Tinted(f), sprites.Teddy.Tinted(f)})
 }
@@ -234,11 +247,8 @@ func (m *Model) replay() {
 	if m.world == nil || m.squash != nil {
 		return
 	}
-	skins := m.skins
 	m.world.Clear()
-	m.skins = nil
-	m.dropRows(len(skins), 0)
-	m.skins = skins
+	m.dropRows(len(m.skins), 0)
 }
 
 func (m *Model) frame(now time.Time) {
@@ -247,7 +257,6 @@ func (m *Model) frame(now time.Time) {
 		dt = min(now.Sub(m.last).Seconds(), maxFrameDT)
 	}
 	m.last = now
-	m.shown, m.shownVel = m.counterSpring.Update(m.shown, m.shownVel, float64(m.cleared))
 	if m.world == nil || m.tooSmall() {
 		return
 	}
@@ -262,7 +271,9 @@ func (m *Model) frame(now time.Time) {
 		m.world.Step(physics.TimeStep)
 	}
 	if top, ok := m.world.HighestRestingTop(); ok && top <= 0 {
-		m.squash = &squash{scale: 1}
+		m.squash = &squash{scale: 1, counts: !m.resized}
+	} else if m.world.Settled() {
+		m.resized = false
 	}
 }
 
@@ -272,8 +283,10 @@ func (m *Model) stepSquash() {
 	if math.Abs(s.scale) < 0.01 && math.Abs(s.vel) < 0.05 {
 		m.world.Clear()
 		m.skins = nil
+		if s.counts {
+			m.cleared++
+		}
 		m.squash = nil
-		m.cleared++
 		m.acc = 0
 	}
 }
@@ -288,7 +301,7 @@ func (m *Model) render() string {
 	if m.width == 0 {
 		return ""
 	}
-	if m.tooSmall() || m.canvas == nil {
+	if m.tooSmall() {
 		return "terminal too small for teddytokens"
 	}
 	m.canvas.Clear()

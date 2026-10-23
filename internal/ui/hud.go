@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -27,7 +26,6 @@ var (
 	accent    = lipgloss.Color("#D97757")
 	hudStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#A8A8A8"))
 	numStyle  = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	popStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD27F")).Bold(true)
 	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F5F"))
 	separator = hudStyle.Render(" · ")
 )
@@ -57,12 +55,8 @@ func (m *Model) hud() string {
 		m.bar.ViewAs(m.spawn.progress()),
 		hudStyle.Render(m.scope),
 	}
-	if shown := int(math.Round(m.shown)); shown > 0 {
-		style := numStyle
-		if shown != m.cleared || math.Abs(m.shownVel) > 0.05 {
-			style = popStyle // still easing toward the new count
-		}
-		parts = append(parts, style.Render(fmt.Sprintf("×%d", shown)))
+	if m.cleared > 0 {
+		parts = append(parts, numStyle.Render(fmt.Sprintf("×%d", m.cleared)))
 	}
 	if m.err != nil {
 		parts = append(parts, errStyle.Render("⚠ "+m.err.Error()))

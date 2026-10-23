@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"time"
 
@@ -52,8 +53,8 @@ func run() error {
 
 	cfg := ui.Config{Per: *per, Teddy: *teddy, Seed: uint64(time.Now().UnixNano())}
 	if *demo {
-		d := ui.NewDemo(cfg.Seed)
-		cfg.Source, cfg.Initial, cfg.Scope = d, d.Total(), "demo"
+		d := &demoSource{rng: rand.New(rand.NewPCG(cfg.Seed, cfg.Seed))}
+		cfg.Source, cfg.Initial, cfg.Scope = d, 180_000, "demo" // a small existing pile
 	} else {
 		scope := tokens.ScopeSession
 		switch {
@@ -74,4 +75,19 @@ func run() error {
 
 	_, err := tea.NewProgram(ui.New(cfg)).Run()
 	return err
+}
+
+// demoSource is a fake token source for trying the app without spending tokens.
+// It grows in small steps with an occasional large burst.
+type demoSource struct{ rng *rand.Rand }
+
+// Poll returns the tokens added since the last call.
+func (d *demoSource) Poll() (int64, error) {
+	switch r := d.rng.Float64(); {
+	case r < 0.04:
+		return 120_000 + d.rng.Int64N(130_000), nil // a big tool result or long answer
+	case r < 0.75:
+		return 1_000 + d.rng.Int64N(8_000), nil
+	}
+	return 0, nil
 }

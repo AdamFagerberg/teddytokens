@@ -5,8 +5,8 @@ A terminal toy that shows how many Claude Code tokens you've spent. Every
 lands on a pile with real (home-made) physics. When the pile reaches the top
 it gets squashed and cleared, and a `×N` counter keeps score.
 
-<!-- TODO: replace with a recording, e.g. `vhs` or asciinema + agg -->
-![teddytokens demo](docs/demo.gif)
+<!-- TODO: add a recording (e.g. `vhs` or asciinema + agg) at docs/demo.gif
+and embed it here: ![teddytokens demo](docs/demo.gif) -->
 
 Press `t` to swap the Claude mascot for a teddy bear.
 
@@ -15,8 +15,7 @@ Press `t` to swap the Claude mascot for a teddy bear.
 With Homebrew (macOS and Linux):
 
 ```sh
-# TODO: confirm the tap name once AdamFagerberg/homebrew-tap exists
-brew install --cask AdamFagerberg/tap/teddytokens
+brew install adamfagerberg/tap/teddytokens
 ```
 
 With Go 1.27 or newer:
@@ -93,17 +92,32 @@ golangci-lint run ./...
 
 ## Releasing
 
-Releases are built by GoReleaser from GitHub Actions when a `v*` tag is pushed:
+1. Tag and push. The release workflow runs GoReleaser and publishes a GitHub
+   release with darwin/linux amd64/arm64 archives and `checksums.txt`:
 
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
+   ```sh
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
 
-This publishes darwin/linux archives for amd64 and arm64 with checksums, and
-updates the Homebrew cask in the tap. The workflow needs a
-`HOMEBREW_TAP_GITHUB_TOKEN` repository secret with write access to the tap
-repo. Try the build locally with `goreleaser release --snapshot --clean`.
+   Try the build locally with `goreleaser release --snapshot --clean`.
+
+2. Update the Homebrew tap
+   ([AdamFagerberg/homebrew-tap](https://github.com/AdamFagerberg/homebrew-tap)).
+   The formula builds from the tag's source tarball. For the first release,
+   copy `packaging/homebrew/teddytokens.rb` to `Formula/teddytokens.rb` in the
+   tap, set the version in `url` and fill in `sha256`:
+
+   ```sh
+   curl -sL https://github.com/AdamFagerberg/teddytokens/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
+   ```
+
+   Open a PR so the tap's test-bot builds bottles, then publish them with the
+   `pr-pull` workflow. For later versions:
+
+   ```sh
+   brew bump-formula-pr --url https://github.com/AdamFagerberg/teddytokens/archive/refs/tags/vX.Y.Z.tar.gz adamfagerberg/tap/teddytokens
+   ```
 
 ## License
 

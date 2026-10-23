@@ -37,15 +37,15 @@ BTBBBBBBBBBBTB
 
 // Claude is the orange Claude Code mascot.
 var Claude = mustParse(claudeGrid, map[byte]Color{
-	'X': Hex(0xD97757),
-	'E': Hex(0x2B2B2B),
+	'X': hex(0xD97757),
+	'E': hex(0x2B2B2B),
 })
 
 // Teddy is a brown teddy bear head with a tan muzzle and inner ears.
 var Teddy = mustParse(teddyGrid, map[byte]Color{
-	'B': Hex(0x8B5A2B),
-	'T': Hex(0xD2A679),
-	'K': Hex(0x1E1E1E),
+	'B': hex(0x8B5A2B),
+	'T': hex(0xD2A679),
+	'K': hex(0x1E1E1E),
 })
 
 // Color is a truecolor pixel. The zero value is transparent.
@@ -54,8 +54,8 @@ type Color struct {
 	Opaque  bool
 }
 
-// Hex returns the opaque color 0xRRGGBB.
-func Hex(rgb uint32) Color {
+// hex returns the opaque color 0xRRGGBB.
+func hex(rgb uint32) Color {
 	return Color{R: uint8(rgb >> 16), G: uint8(rgb >> 8), B: uint8(rgb), Opaque: true}
 }
 
@@ -65,8 +65,8 @@ type Sprite struct {
 	pix  []Color
 }
 
-// At returns the pixel at (x, y), which must be inside the sprite.
-func (s *Sprite) At(x, y int) Color {
+// at returns the pixel at (x, y), which must be inside the sprite.
+func (s *Sprite) at(x, y int) Color {
 	return s.pix[y*s.W+x]
 }
 

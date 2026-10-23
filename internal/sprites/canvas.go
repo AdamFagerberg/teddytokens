@@ -9,13 +9,13 @@ import (
 // cols pixels wide and 2*rows pixels tall, so each terminal cell covers two
 // vertically stacked pixels.
 type Canvas struct {
-	W, H int
+	w, h int
 	pix  []Color
 }
 
 // NewCanvas returns a transparent canvas covering cols x rows terminal cells.
 func NewCanvas(cols, rows int) *Canvas {
-	return &Canvas{W: cols, H: 2 * rows, pix: make([]Color, cols*2*rows)}
+	return &Canvas{w: cols, h: 2 * rows, pix: make([]Color, cols*2*rows)}
 }
 
 // Clear makes every pixel transparent.
@@ -28,16 +28,16 @@ func (c *Canvas) Clear() {
 func (c *Canvas) Blit(s *Sprite, x, y int) {
 	for sy := range s.H {
 		py := y + sy
-		if py < 0 || py >= c.H {
+		if py < 0 || py >= c.h {
 			continue
 		}
 		for sx := range s.W {
 			px := x + sx
-			if px < 0 || px >= c.W {
+			if px < 0 || px >= c.w {
 				continue
 			}
-			if p := s.At(sx, sy); p.Opaque {
-				c.pix[py*c.W+px] = p
+			if p := s.at(sx, sy); p.Opaque {
+				c.pix[py*c.w+px] = p
 			}
 		}
 	}
@@ -49,7 +49,7 @@ func (c *Canvas) Blit(s *Sprite, x, y int) {
 // terminal's own background, and each line resets its attributes at the end.
 func (c *Canvas) Render() string {
 	var b strings.Builder
-	for row := range c.H / 2 {
+	for row := range c.h / 2 {
 		if row > 0 {
 			b.WriteByte('\n')
 		}
@@ -76,9 +76,9 @@ func (c *Canvas) renderLine(b *strings.Builder, row int) {
 			bg = col
 		}
 	}
-	top := c.pix[2*row*c.W:][:c.W]
-	bot := c.pix[(2*row+1)*c.W:][:c.W]
-	for x := range c.W {
+	top := c.pix[2*row*c.w:][:c.w]
+	bot := c.pix[(2*row+1)*c.w:][:c.w]
+	for x := range c.w {
 		t, u := top[x], bot[x]
 		switch {
 		case !t.Opaque && !u.Opaque:

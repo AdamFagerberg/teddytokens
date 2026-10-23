@@ -150,7 +150,7 @@ func TestPollPartialLine(t *testing.T) {
 
 func TestPollSessionPicksUpNewerFile(t *testing.T) {
 	root := fixtureRoot(t)
-	tr := load(t, Options{Scope: ScopeSession, Root: root, Cwd: fixtureCwd})
+	tr := load(t, Options{Scope: ScopeSession, Root: root, Cwd: fixtureCwd, Now: func() time.Time { return fixtureNow }})
 	start := tr.Total()
 
 	// A file in another project is out of scope.
@@ -161,7 +161,7 @@ func TestPollSessionPicksUpNewerFile(t *testing.T) {
 	}
 
 	path := filepath.Join(root, "-Users-me-my-proj-v2", "newer.jsonl")
-	appendFile(t, path, `{"message":{"id":"msg_newer","usage":{"input_tokens":3,"output_tokens":4}}}`+"\n")
+	appendFile(t, path, `{"timestamp":"2026-10-23T12:00:01Z","message":{"id":"msg_newer","usage":{"input_tokens":3,"output_tokens":4}}}`+"\n")
 	future := time.Now().Add(time.Hour)
 	if err := os.Chtimes(path, future, future); err != nil {
 		t.Fatal(err)
@@ -171,6 +171,49 @@ func TestPollSessionPicksUpNewerFile(t *testing.T) {
 	}
 	if got := tr.Total(); got != start+7 {
 		t.Errorf("Total() = %d, want %d", got, start+7)
+	}
+}
+
+func TestPollResumedSessionCountsOnlyNewEntries(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ProjectDir(fixtureCwd))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	older, current := filepath.Join(dir, "a.jsonl"), filepath.Join(dir, "b.jsonl")
+	appendFile(t, older, `{"timestamp":"2026-10-20T09:00:00Z","message":{"id":"msg_a","usage":{"input_tokens":500000}}}`+"\n")
+	appendFile(t, current, `{"timestamp":"2026-10-23T11:00:00Z","message":{"id":"msg_b","usage":{"input_tokens":7}}}`+"\n")
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(older, past.Add(-time.Hour), past.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(current, past, past); err != nil {
+		t.Fatal(err)
+	}
+	tr := load(t, Options{Scope: ScopeSession, Root: filepath.Dir(dir), Cwd: fixtureCwd, Now: func() time.Time { return fixtureNow }})
+	if tr.Total() != 7 {
+		t.Fatalf("Total() = %d, want 7", tr.Total())
+	}
+
+	// Resuming the older session makes it the newest file.
+	appendFile(t, older, `{"timestamp":"2026-10-23T12:00:01Z","message":{"id":"msg_c","usage":{"input_tokens":100}}}`+"\n")
+	if got := poll(t, tr); got != 100 {
+		t.Errorf("resumed session: Poll() = %d, want 100", got)
+	}
+}
+
+func TestPollTruncatedFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "p", "s.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, path, `{"timestamp":"2026-10-23T11:00:00Z","message":{"id":"msg_long_original_id","usage":{"input_tokens":10}}}`+"\n")
+	tr := load(t, Options{Scope: ScopeAll, Root: root})
+	if err := os.WriteFile(path, []byte(`{"message":{"id":"msg_b","usage":{"input_tokens":5}}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := poll(t, tr); got != 5 {
+		t.Errorf("after truncation: Poll() = %d, want 5", got)
 	}
 }
 

@@ -55,7 +55,8 @@ type Options struct {
 	Root string
 	// Cwd selects the project in ScopeSession. Defaults to os.Getwd.
 	Cwd string
-	// Now returns the current time, used by ScopeToday. Defaults to time.Now.
+	// Now returns the current time, used by ScopeToday and to date the start
+	// of tracking. Defaults to time.Now.
 	Now func() time.Time
 }
 
@@ -65,11 +66,16 @@ type Tracker struct {
 	files map[string]*fileState
 	seen  map[string]int64 // message id -> tokens counted for it
 	total int64
+	// since is given to files first seen after Load, so a file that only
+	// comes into scope later (an older session resumed) adds just its new
+	// entries rather than its whole history.
+	since time.Time
 }
 
 type fileState struct {
 	offset  int64
-	partial []byte // trailing bytes not yet terminated by a newline
+	partial []byte    // trailing bytes not yet terminated by a newline
+	since   time.Time // entries timestamped before this are ignored
 }
 
 type entry struct {
@@ -116,6 +122,7 @@ func Load(opts Options) (*Tracker, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	started := opts.Now()
 	t := &Tracker{
 		opts:  opts,
 		files: make(map[string]*fileState),
@@ -124,6 +131,7 @@ func Load(opts Options) (*Tracker, error) {
 	if _, err := t.Poll(); err != nil {
 		return nil, err
 	}
+	t.since = started
 	return t, nil
 }
 
@@ -142,12 +150,12 @@ func (t *Tracker) Poll() (int64, error) {
 	var delta int64
 	for _, p := range paths {
 		d, err := t.readFile(p)
+		delta += d
+		t.total += d
 		if err != nil {
 			return delta, err
 		}
-		delta += d
 	}
-	t.total += delta
 	return delta, nil
 }
 
@@ -173,6 +181,9 @@ func (t *Tracker) discover() ([]string, error) {
 		}
 		if !since.IsZero() {
 			info, err := d.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil // removed while scanning
+			}
 			if err != nil {
 				return err
 			}
@@ -222,7 +233,7 @@ func (t *Tracker) sessionFiles() ([]string, error) {
 func (t *Tracker) readFile(path string) (int64, error) {
 	st := t.files[path]
 	if st == nil {
-		st = &fileState{}
+		st = &fileState{since: t.since}
 		t.files[path] = st
 	}
 	f, err := os.Open(path)
@@ -233,6 +244,13 @@ func (t *Tracker) readFile(path string) (int64, error) {
 		return 0, err
 	}
 	defer func() { _ = f.Close() }() // read-only; close error is irrelevant
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if info.Size() < st.offset { // truncated or replaced: start over
+		st.offset, st.partial = 0, nil
+	}
 	if _, err := f.Seek(st.offset, io.SeekStart); err != nil {
 		return 0, err
 	}
@@ -249,15 +267,16 @@ func (t *Tracker) readFile(path string) (int64, error) {
 		if i < 0 {
 			break
 		}
-		delta += t.countLine(data[:i])
+		delta += t.countLine(data[:i], st.since)
 		data = data[i+1:]
 	}
 	st.partial = bytes.Clone(data)
 	return delta, nil
 }
 
-// countLine returns the tokens a single transcript line adds to the total.
-func (t *Tracker) countLine(line []byte) int64 {
+// countLine returns the tokens a single transcript line adds to the total,
+// ignoring entries timestamped before since.
+func (t *Tracker) countLine(line []byte, since time.Time) int64 {
 	if !bytes.Contains(line, []byte(`"usage"`)) {
 		return 0 // cheap skip for the many lines without usage
 	}
@@ -269,7 +288,10 @@ func (t *Tracker) countLine(line []byte) int64 {
 	if e.Message.ID == "" || u == nil {
 		return 0
 	}
-	if t.opts.Scope == ScopeToday && e.Timestamp.Before(startOfDay(t.opts.Now())) {
+	if day := startOfDay(t.opts.Now()); t.opts.Scope == ScopeToday && day.After(since) {
+		since = day
+	}
+	if e.Timestamp.Before(since) {
 		return 0
 	}
 	n := u.Input + u.Output + u.CacheCreation

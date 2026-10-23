@@ -68,10 +68,7 @@ func TestSpawnerRelease(t *testing.T) {
 	}
 }
 
-func TestSplitPiles(t *testing.T) {
-	if p, r := splitPiles(170, 78); p != 2 || r != 14 {
-		t.Fatalf("splitPiles = %d, %d", p, r)
-	}
+func TestPileCapacity(t *testing.T) {
 	if c := pileCapacity(1, 1); c != 1 {
 		t.Fatalf("tiny capacity = %d, want 1", c)
 	}
@@ -164,5 +161,39 @@ func TestPileAtTopSquashesAndClears(t *testing.T) {
 	}
 	if m.cleared != 1 || len(m.world.Bodies()) != 0 || m.squash != nil {
 		t.Fatalf("cleared %d, %d bodies left, squashing %v", m.cleared, len(m.world.Bodies()), m.squash != nil)
+	}
+}
+
+// runFrames steps n frames of 1/fps seconds.
+func runFrames(m *Model, n int) {
+	now := time.Unix(0, 0)
+	for range n {
+		now = now.Add(time.Second / fps)
+		m.frame(now)
+	}
+}
+
+func TestShrinkOverflowDoesNotCount(t *testing.T) {
+	m := newTestModel(200_000) // 20 characters: several rows
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: sprites.Claude.H + hudRows})
+	runFrames(m, 30*30)
+	if m.cleared != 0 || len(m.world.Bodies()) != 0 {
+		t.Fatalf("after shrinking: cleared %d, %d bodies left", m.cleared, len(m.world.Bodies()))
+	}
+	if m.resized {
+		t.Fatal("resize flag still set once the world is empty")
+	}
+}
+
+func TestBigBurstBecomesClearedPiles(t *testing.T) {
+	m := newTestModel(0)
+	capacity := pileCapacity(m.world.Size())
+	m.Update(pollMsg{delta: 10_000 * int64(10*capacity+3)})
+	if m.cleared != 10 || m.spawn.queue != 3 {
+		t.Fatalf("cleared %d, queue %d; want 10, 3", m.cleared, m.spawn.queue)
+	}
+	m.Update(pollMsg{delta: 10_000 * int64(capacity-3)})
+	if m.cleared != 10 || m.spawn.queue != capacity {
+		t.Fatalf("a pile's worth: cleared %d, queue %d", m.cleared, m.spawn.queue)
 	}
 }
