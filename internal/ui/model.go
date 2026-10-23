@@ -394,22 +394,23 @@ func (m *Model) checkMerge() {
 	full := ok && top <= 0
 	switch {
 	case n[big] >= 3:
-		m.startMerge(big)
+		m.startMerge(big, 3)
 	case full && n[small] > 0:
-		m.startMerge(small)
+		m.startMerge(small, n[small])
 	case full && n[big] > 0:
-		m.startMerge(big)
+		m.startMerge(big, n[big])
 	}
 }
 
-// startMerge flies every character of tier from towards the centre of
-// their bounding box, or towards the giant when making one that exists.
-func (m *Model) startMerge(from int) {
+// startMerge flies the first n characters of tier from towards the centre
+// of their bounding box, or towards the giant when making one that exists.
+func (m *Model) startMerge(from, n int) {
 	g := &merge{tier: from + 1}
 	x0, y0, x1, y1 := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for _, c := range m.chars {
 		switch {
-		case c.tier == from:
+		case c.tier == from && n > 0:
+			n--
 			c.merging = true
 			x, y := c.body.Pos()
 			w, h := c.size()

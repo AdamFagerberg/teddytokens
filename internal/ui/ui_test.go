@@ -207,6 +207,21 @@ func TestThreeBigsMakeOneGiant(t *testing.T) {
 	}
 }
 
+func TestFourBigsLeaveOneOver(t *testing.T) {
+	m := newTestModel(0)
+	for i := range 4 {
+		addChar(m, big, float64(i%3*44), float64(-30-i/3*30))
+	}
+	runUntil(t, m, func() bool { return m.giants == 1 && m.merge == nil })
+	n := map[int]int{}
+	for _, c := range m.chars {
+		n[c.tier]++
+	}
+	if n[giant] != 1 || n[big] != 1 {
+		t.Fatalf("got %v, want one giant and one big", n)
+	}
+}
+
 func TestBigBurstBecomesPiles(t *testing.T) {
 	m := newTestModel(0)
 	capacity := pileCapacity(m.world.Size())
