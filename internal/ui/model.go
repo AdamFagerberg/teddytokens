@@ -37,6 +37,7 @@ type Source interface {
 type Config struct {
 	Source  Source
 	Initial int64  // tokens already spent at startup
+	Fresh   bool   // start with an empty pile; Initial only shows in the HUD
 	Per     int64  // tokens per character, > 0
 	Teddy   bool   // start with the teddy skin
 	Scope   string // label shown in the status bar
@@ -137,8 +138,10 @@ func New(cfg Config) *Model {
 			progress.WithColors(accent)),
 		help: help.New(),
 	}
-	m.spawn.add(cfg.Initial)
-	m.initial, m.spawn.queue = m.spawn.queue, 0
+	if !cfg.Fresh {
+		m.spawn.add(cfg.Initial)
+		m.initial, m.spawn.queue = m.spawn.queue, 0
+	}
 	return m
 }
 

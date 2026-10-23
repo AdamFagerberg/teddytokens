@@ -49,8 +49,9 @@ teddytokens --all      # everything, ever
 teddytokens --demo     # fake bursty token growth, costs nothing
 ```
 
-Tokens you've already spent start as a settled pile; only new tokens fall
-from the top. Big bursts (say 200k at once) are queued and released a few
+In the default session mode, tokens you've already spent start as a settled
+pile. With `--today` or `--all` the pile starts empty (the status bar still
+shows the full total). Either way, only new tokens fall from the top. Big bursts (say 200k at once) are queued and released a few
 characters per second.
 
 ### Flags
@@ -93,7 +94,7 @@ only newly appended bytes every half second, so it stays cheap on large logs.
   the current directory. If a newer session starts, teddytokens follows it and
   keeps adding to the running total.
 
-A very long history would bury the screen many times over, so at startup
+A very long session would bury the screen many times over, so at startup
 every pile it would have filled becomes a big character, every three bigs a
 giant, and only the remainder is drawn as small ones. A huge burst is handled
 the same way. In a small terminal the big and giant characters are drawn at a

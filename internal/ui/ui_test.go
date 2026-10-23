@@ -97,6 +97,18 @@ func TestStartupPileIsSettled(t *testing.T) {
 	}
 }
 
+func TestFreshStartsEmpty(t *testing.T) {
+	m := New(Config{Source: noSource{}, Initial: 50_000_000, Fresh: true, Per: 10_000, Scope: "test", Seed: 1})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if len(m.chars) != 0 || m.giants != 0 || m.spawn.queue != 0 || m.total != 50_000_000 {
+		t.Fatalf("chars %d, giants %d, queue %d, total %d", len(m.chars), m.giants, m.spawn.queue, m.total)
+	}
+	m.Update(pollMsg{delta: 25_000})
+	if m.spawn.queue != 2 {
+		t.Fatalf("queue %d after 25k new tokens, want 2", m.spawn.queue)
+	}
+}
+
 func TestHugeHistoryBecomesBigsAndGiants(t *testing.T) {
 	capacity := pileCapacity(120, 2*39)
 	m := newTestModel(10_000 * int64(7*capacity+5)) // 7 piles: 2 giants and a big

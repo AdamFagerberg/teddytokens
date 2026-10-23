@@ -68,6 +68,7 @@ func run() error {
 			return err
 		}
 		cfg.Source, cfg.Initial, cfg.Scope = tr, tr.Total(), scope.String()
+		cfg.Fresh = scope != tokens.ScopeSession // a day's or all-time history would start as giants
 		if *cacheReads {
 			cfg.Scope += "+cache"
 		}
