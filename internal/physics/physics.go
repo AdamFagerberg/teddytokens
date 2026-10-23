@@ -1,17 +1,19 @@
-// Package physics is a small 2D engine for stacking axis-aligned,
-// non-rotating boxes.
+// Package physics is a small 2D rigid body engine for boxes that fall,
+// tumble and pile up.
 //
 // All lengths are in pixels: one pixel is one terminal column wide and half a
 // terminal row tall (the half-block renderer draws two pixels per cell), so a
 // world for a cols x rows terminal is NewWorld(cols, 2*rows). The y axis
 // points down, the floor is at y = H and the walls are at x = 0 and x = W.
+// Angles are in radians, clockwise on screen.
 //
-// The solver is position based: bodies are integrated, overlaps are projected
-// apart over several bottom-up iterations, and velocities are derived from the
-// corrected positions. Contacts with the floor or a resting body move only the
-// body on top, so stacks settle exactly instead of jittering. Bodies that stay
-// still for a while fall asleep at integer pixel positions and cost nothing
-// until an impact, a moving support or a resize wakes them.
+// The solver uses sequential impulses in the style of Box2D-Lite: contacts
+// between boxes come from the separating axis test and face clipping, each
+// step applies normal and friction impulses at every contact point several
+// times, warm started from the previous step's impulses, so off-centre
+// impacts spin bodies and piles come to rest at any angle. Bodies that stay
+// still for a while fall asleep, keep their exact pose and act as immovable
+// until an impact, a moving support, a removal or a resize wakes them.
 package physics
 
 import (
@@ -27,107 +29,60 @@ const (
 	TimeStep = 1.0 / 60
 
 	gravity     = 200.0 // px/s²
-	restitution = 0.3
+	iterations  = 10
 	friction    = 0.5
-	iterations  = 8
+	restitution = 0.3
 
-	// maxSpeed keeps per-step motion below half a body so overlaps are
-	// always resolved along the right axis.
-	maxSpeed        = 150.0
-	bounceThreshold = 20.0 // slower impacts don't bounce
+	// maxSpeed caps how fast any point of a body moves, keeping per-step
+	// motion below margin and half the smallest body.
+	maxSpeed = 150.0
+	// margin is how far apart surfaces get contacts, so they can't pass
+	// through each other within a step.
+	margin          = 3.0
+	slop            = 0.5 // overlap left alone, so resting contacts persist
+	baumgarte       = 0.2 // fraction of deeper overlap removed per step
+	bounceThreshold = 20.0
+	linearDamping   = 0.05 // per second
+	angularDamping  = 0.5  // per second
 	wakeSpeed       = 20.0 // faster impacts wake sleeping bodies
 	sleepSpeed      = 2.0
-	sleepDelay      = 0.25 // seconds below sleepSpeed before sleeping
-	margin          = 1.0  // broadphase padding for support checks
+	sleepDelay      = 0.5 // seconds below sleepSpeed before sleeping
 	shakeSpeed      = 140.0
-	// deflect turns part of a landing's speed into a sideways knock toward
-	// the side the body hit, so off-centre landings skid off and scatter.
-	deflect = 0.8
-	// tipAccel pushes a body whose centre overhangs its support off the
-	// edge, so piles slump instead of balancing on corners. An upright body
-	// tips onto its side over the edge instead when there is room.
-	tipAccel = gravity
+	shakeSpin       = 6.0 // rad/s
 )
 
-// Body is a box in the world. Its state is owned by the World; read it
-// through the accessor methods.
-type Body struct {
-	x, y, w, h float64
-	vx, vy     float64
-	px, py     float64 // position at the start of the step
-	asleep     bool
-	still      float64 // seconds spent below sleepSpeed
-	grounded   bool    // rests on something immovable this iteration
-	floor      bool    // touched the floor this step
-	wall       int     // -1 or +1 if it touched the left or right wall
-	supLo      float64 // left end of the span held up by bodies below
-	supHi      float64 // right end of that span
-	leanL      bool    // a body or wall touches its left side
-	leanR      bool    // a body or wall touches its right side
-	turn       int     // 0 upright, 1 or -1 tipped a quarter turn right or left
-	landed     bool    // hit a body below it hard this step
-}
-
-// Pos returns the body's top-left corner rounded to whole pixels.
-func (b *Body) Pos() (x, y int) {
-	return int(math.Round(b.x)), int(math.Round(b.y))
-}
-
-// Size returns the body's width and height, swapped once it has tipped.
-func (b *Body) Size() (w, h int) {
-	return int(b.w), int(b.h)
-}
-
-// Turn is 0 for an upright body, 1 once it has tipped onto its side to the
-// right (clockwise) and -1 to the left.
-func (b *Body) Turn() int {
-	return b.turn
-}
-
-func (b *Body) wake() {
-	if b.asleep {
-		b.asleep = false
-		b.px, b.py = b.x, b.y
-	}
-	b.still = 0
-}
-
-// invMass is 1 for a simulated body and 0 for a sleeping (immovable) one.
-func (b *Body) invMass() float64 {
-	if b.asleep {
-		return 0
-	}
-	return 1
-}
-
-// World is a walled box of pixels with a floor, holding bodies.
+// World is a walled box of pixels with a floor, holding rigid bodies.
 type World struct {
-	w, h     float64
-	bodies   []*Body
-	order    []*Body // scratch: bodies sorted by left edge
-	pairs    []pair
-	contacts []contact
+	w, h   float64
+	bodies []*Rigidbody
+	nextID int
+	ground Rigidbody // the immovable other side of floor and wall contacts
+
+	order            []*Rigidbody // scratch: bodies sorted by left edge
+	arbs, prev       []arbiter
+	index, prevIndex map[pairKey]int // arbiter of each touching pair in arbs, prev
 }
 
-// pair is a broadphase candidate; c indexes its contact or is -1.
-type pair struct {
-	a, b *Body
-	c    int
+// arbiter holds the contacts between a pair of bodies, or between a body
+// and the floor or a wall.
+type arbiter struct {
+	a, b *Rigidbody
+	n    int
+	c    [2]contact
 }
 
-// contact records a body-body collision resolved during a step. The normal
-// points from a to b along x or y.
-type contact struct {
-	a, b     *Body
-	vertical bool
-	wa, wb   float64 // inverse masses used for the correction
-	approach float64 // closing speed along the normal before solving
-	depth    float64 // total correction distance this step
+// pairKey names an arbiter; plane tells floor and walls apart when b is
+// the ground.
+type pairKey struct {
+	a, b  *Rigidbody
+	plane int
 }
 
 // NewWorld returns an empty world of w x h pixels.
 func NewWorld(w, h int) *World {
-	return &World{w: float64(w), h: float64(h)}
+	world := &World{w: float64(w), h: float64(h), index: map[pairKey]int{}, prevIndex: map[pairKey]int{}}
+	world.ground.asleep = true
+	return world
 }
 
 // Size returns the world's width and height in pixels.
@@ -135,73 +90,75 @@ func (w *World) Size() (width, height int) {
 	return int(w.w), int(w.h)
 }
 
-// Bodies returns the bodies in insertion order. The slice must not be
-// modified.
-func (w *World) Bodies() []*Body {
+// Bodies returns the bodies in the order they were added. The slice must
+// not be modified.
+func (w *World) Bodies() []*Rigidbody {
 	return w.bodies
 }
 
-// AddBody adds an awake width x height body with its top-left corner at (x, y) and a
-// horizontal velocity of vx px/s. Bodies may start above the top (y < 0).
-func (w *World) AddBody(x, y float64, width, height int, vx float64) *Body {
-	b := &Body{x: x, y: y, w: float64(width), h: float64(height), vx: vx}
-	b.px, b.py = x, y
+// Add puts b into the world. Bodies may start above the top (y < 0).
+func (w *World) Add(b *Rigidbody) {
+	b.id = w.nextID
+	w.nextID++
 	w.bodies = append(w.bodies, b)
-	return b
 }
 
-// Remove deletes b and wakes every other body, since anything it held up
-// must fall.
-func (w *World) Remove(b *Body) {
-	w.bodies = slices.DeleteFunc(w.bodies, func(o *Body) bool { return o == b })
+// Remove takes b out of the world and wakes the bodies touching it, since
+// anything it held up must fall.
+func (w *World) Remove(b *Rigidbody) {
+	w.bodies = slices.DeleteFunc(w.bodies, func(o *Rigidbody) bool { return o == b })
+	lo, hi := b.aabb(margin)
 	for _, o := range w.bodies {
-		o.wake()
+		if olo, ohi := o.aabb(0); olo.x < hi.x && lo.x < ohi.x && olo.y < hi.y && lo.y < ohi.y {
+			o.wake()
+		}
 	}
 }
 
 // Clear removes all bodies.
 func (w *World) Clear() {
 	w.bodies = nil
+	w.arbs = w.arbs[:0]
+	clear(w.index)
 }
 
 // Resize moves the walls and floor and wakes every body. A rising floor
 // lifts everything with it; bodies cut off by a closer right wall are dropped
-// again in rows above the highest remaining body.
+// again upright, in rows above the highest remaining body.
 func (w *World) Resize(width, height int) {
 	lift := min(0, float64(height)-w.h)
 	w.w, w.h = float64(width), float64(height)
 	top := 0.0
-	var cut []*Body
+	var cut []*Rigidbody
 	for _, b := range w.bodies {
 		b.wake()
-		b.y += lift
-		if b.x+b.w > w.w {
+		b.pos.y += lift
+		if lo, hi := b.aabb(0); hi.x > w.w+slop {
 			cut = append(cut, b)
 		} else {
-			top = min(top, b.y)
+			top = min(top, lo.y)
 		}
 	}
 	x, bottom, rowH := 0.0, top, 0.0
 	for _, b := range cut {
-		if x > 0 && x+b.w > w.w {
+		bw, bh := 2*b.hw, 2*b.hh
+		if x > 0 && x+bw > w.w {
 			x, bottom, rowH = 0, bottom-rowH, 0
 		}
-		b.x, b.y, b.vx, b.vy = x, bottom-b.h, 0, 0
-		x += b.w
-		rowH = max(rowH, b.h)
-	}
-	for _, b := range w.bodies {
-		b.px, b.py = b.x, b.y
+		b.pos, b.vel, b.spin = vec{x + b.hw, bottom - b.hh}, vec{}, 0
+		b.setAngle(0)
+		x += bw
+		rowH = max(rowH, bh)
 	}
 }
 
-// Shake wakes every body and kicks it upward and sideways at a random
-// speed below maxSpeed, so the whole pile jumps and falls back.
+// Shake wakes every body and throws it upward and sideways with a random
+// spin, so the whole pile jumps, tumbles and falls back.
 func (w *World) Shake(r *rand.Rand) {
 	for _, b := range w.bodies {
 		b.wake()
-		b.vx = (r.Float64()*2 - 1) * shakeSpeed / 2
-		b.vy = -shakeSpeed * (0.5 + r.Float64()/2)
+		b.vel = vec{(r.Float64()*2 - 1) * shakeSpeed / 2, -shakeSpeed * (0.5 + r.Float64()/2)}
+		b.spin = (r.Float64()*2 - 1) * shakeSpin
 	}
 }
 
@@ -228,14 +185,14 @@ func (w *World) Settle(maxSteps int) bool {
 	return w.Settled()
 }
 
-// HighestRestingTop returns the smallest top edge, in whole pixels, of any
-// sleeping body, or false if none sleeps. A value <= 0 means the resting
-// pile has reached the top of the world.
+// HighestRestingTop returns the smallest top edge, in whole pixels, of the
+// bounding box of any sleeping body, or false if none sleeps. A value <= 0
+// means the resting pile has reached the top of the world.
 func (w *World) HighestRestingTop() (int, bool) {
 	top, ok := math.Inf(1), false
 	for _, b := range w.bodies {
-		if b.asleep && b.y < top {
-			top, ok = b.y, true
+		if lo, _ := b.aabb(0); b.asleep && lo.y < top {
+			top, ok = lo.y, true
 		}
 	}
 	return int(math.Round(top)), ok
@@ -246,304 +203,211 @@ func (w *World) Step(dt float64) {
 	if w.Settled() {
 		return
 	}
+	w.findContacts()
 	for _, b := range w.bodies {
 		if b.asleep {
 			continue
 		}
-		b.px, b.py = b.x, b.y
-		b.vy = min(b.vy+gravity*dt, maxSpeed)
-		b.x += b.vx * dt
-		b.y += b.vy * dt
-		b.floor, b.wall, b.landed = false, 0, false
+		b.vel.y += gravity * dt
+		b.vel = b.vel.mul(1 / (1 + dt*linearDamping))
+		b.spin /= 1 + dt*angularDamping
 	}
-	w.findPairs()
-	w.contacts = w.contacts[:0]
+	// Measure every contact before any warm start changes the velocities,
+	// so a warm-start impulse never looks like an impact.
+	for i := range w.arbs {
+		w.arbs[i].preStep(dt)
+	}
+	for i := range w.arbs {
+		w.arbs[i].warmStart()
+	}
 	for range iterations {
-		w.clampAll()
-		for i := range w.pairs {
-			w.solve(&w.pairs[i])
+		for i := range w.arbs {
+			w.arbs[i].solve()
 		}
 	}
-	w.clampAll()
-	w.updateVelocities(dt)
-	w.wakeNeighbours()
+	for _, b := range w.bodies {
+		if b.asleep {
+			continue
+		}
+		if s := b.speed(); s > maxSpeed {
+			b.vel, b.spin = b.vel.mul(maxSpeed/s), b.spin*maxSpeed/s
+		}
+		b.pos = b.pos.add(b.vel.mul(dt))
+		b.setAngle(b.angle + b.spin*dt)
+		// The floor and walls don't give: move anything pushed into them
+		// further than slop back out. The bounding box's edges are the
+		// deepest corners.
+		lo, hi := b.aabb(-slop)
+		b.pos.x += max(0, -lo.x) - max(0, hi.x-w.w)
+		b.pos.y -= max(0, hi.y-w.h)
+	}
+	w.wakeTouched()
 	w.sleep(dt)
 }
 
-// findPairs collects body pairs, not both asleep, whose margin-padded boxes
-// overlap, ordered bottom-up so support propagates in a single sweep.
-func (w *World) findPairs() {
+// findContacts rebuilds the arbiters: floor and wall contacts for awake
+// bodies, then box contacts for pairs, not both asleep, whose padded
+// bounding boxes overlap (sort and sweep along x). Contacts that persist
+// from the previous step keep their impulses.
+func (w *World) findContacts() {
+	w.prev, w.arbs = w.arbs, w.prev[:0]
+	w.prevIndex, w.index = w.index, w.prevIndex
+	clear(w.index)
+
+	planes := [...]plane{{vec{0, 1}, w.h}, {vec{-1, 0}, 0}, {vec{1, 0}, w.w}}
+	var cs [2]contact
+	for _, b := range w.bodies {
+		b.lo, b.hi = b.aabb(margin / 2)
+		if b.asleep {
+			continue
+		}
+		for i, p := range planes {
+			if n := planeContacts(b, p, &cs); n > 0 {
+				w.addArbiter(pairKey{b, &w.ground, i}, cs[:n])
+			}
+		}
+	}
+
 	w.order = append(w.order[:0], w.bodies...)
-	slices.SortFunc(w.order, func(a, b *Body) int { return cmp.Compare(a.x, b.x) })
-	w.pairs = w.pairs[:0]
+	slices.SortFunc(w.order, func(a, b *Rigidbody) int {
+		return cmp.Or(cmp.Compare(a.lo.x, b.lo.x), cmp.Compare(a.id, b.id))
+	})
 	for i, a := range w.order {
 		for _, b := range w.order[i+1:] {
-			if b.x > a.x+a.w+margin {
+			if b.lo.x > a.hi.x {
 				break
 			}
-			if (a.asleep && b.asleep) || b.y > a.y+a.h+margin || a.y > b.y+b.h+margin {
+			if (a.asleep && b.asleep) || b.lo.y > a.hi.y || a.lo.y > b.hi.y {
 				continue
 			}
-			w.pairs = append(w.pairs, pair{a: a, b: b, c: -1})
-		}
-	}
-	slices.SortFunc(w.pairs, func(p, q pair) int {
-		return cmp.Compare(max(q.a.y+q.a.h, q.b.y+q.b.h), max(p.a.y+p.a.h, p.b.y+p.b.h))
-	})
-}
-
-// clampAll keeps awake bodies inside the walls and above the floor.
-func (w *World) clampAll() {
-	for _, b := range w.bodies {
-		if !b.asleep {
-			w.clamp(b)
-		}
-	}
-}
-
-func (w *World) clamp(b *Body) {
-	b.grounded = false
-	if b.y+b.h >= w.h {
-		b.y = w.h - b.h
-		b.floor, b.grounded = true, true
-	}
-	if b.x <= 0 {
-		b.x, b.wall = 0, -1
-	} else if b.x+b.w >= w.w {
-		b.x, b.wall = w.w-b.w, 1
-	}
-}
-
-// solve pushes an overlapping pair apart along the axis of least overlap.
-func (w *World) solve(p *pair) {
-	a, b := p.a, p.b
-	ox := min(a.x+a.w, b.x+b.w) - max(a.x, b.x)
-	oy := min(a.y+a.h, b.y+b.h) - max(a.y, b.y)
-	if ox <= 0 || oy <= 0 {
-		return
-	}
-	vertical := oy <= ox
-	// Orient so the normal points from a (upper or left) to b.
-	if (vertical && a.y > b.y) || (!vertical && a.x > b.x) {
-		a, b = b, a
-	}
-	approach := a.vx - b.vx
-	if vertical {
-		approach = a.vy - b.vy
-	}
-	wa, wb := a.invMass(), b.invMass()
-	if vertical && b.grounded {
-		wb = 0 // shock propagation: the supporting body doesn't yield
-	}
-	if wa+wb == 0 {
-		return
-	}
-	depth := ox
-	if vertical {
-		depth = oy
-	}
-	da, db := depth*wa/(wa+wb), depth*wb/(wa+wb)
-	if vertical {
-		a.y -= da
-		b.y += db
-		if wb == 0 {
-			a.grounded = true
-		}
-	} else {
-		a.x -= da
-		b.x += db
-	}
-	if p.c < 0 {
-		p.c = len(w.contacts)
-		w.contacts = append(w.contacts, contact{a: a, b: b, vertical: vertical, approach: approach})
-	}
-	c := &w.contacts[p.c]
-	c.wa, c.wb = wa, wb
-	c.depth += depth
-}
-
-// updateVelocities derives velocities from the corrected positions, then
-// applies restitution and Coulomb friction at the walls, floor and contacts.
-func (w *World) updateVelocities(dt float64) {
-	for _, b := range w.bodies {
-		if b.asleep {
-			continue
-		}
-		prevVX, prevVY := b.vx, b.vy
-		b.vx, b.vy = (b.x-b.px)/dt, (b.y-b.py)/dt
-		if b.floor {
-			b.vy = bounce(prevVY, b.vy)
-			b.vx = applyFriction(b.vx, friction*max(prevVY, 0))
-		}
-		if b.wall != 0 {
-			b.vx = float64(b.wall) * bounce(float64(b.wall)*prevVX, float64(b.wall)*b.vx)
-		}
-	}
-	for i := range w.contacts {
-		c := &w.contacts[i]
-		a, b := c.a, c.b
-		an, bn, at, bt := &a.vx, &b.vx, &a.vy, &b.vy
-		if c.vertical {
-			an, bn, at, bt = &a.vy, &b.vy, &a.vx, &b.vx
-		}
-		sum := c.wa + c.wb
-		if sum == 0 {
-			continue
-		}
-		target := 0.0
-		if c.approach > bounceThreshold {
-			target = restitution * c.approach
-		}
-		if sep := *bn - *an; sep < target {
-			d := target - sep
-			*an -= d * c.wa / sum
-			*bn += d * c.wb / sum
-		}
-		limit := friction * c.depth / dt
-		d := max(-limit, min(limit, *bt-*at))
-		*at += d * c.wa / sum
-		*bt -= d * c.wb / sum
-		if c.vertical && c.approach > bounceThreshold && c.wa > 0 {
-			a.landed = true
-			off := (a.x + a.w/2) - (b.x + b.w/2)
-			a.vx += deflect * c.approach * max(-1, min(1, off/(b.w/2)))
-		}
-	}
-	w.findSupports()
-	for _, b := range w.bodies {
-		if b.asleep {
-			continue
-		}
-		if cx := b.x + b.w/2; !b.floor && b.supLo <= b.supHi {
-			if cx < b.supLo && !b.leanL && !w.tip(b, -1, b.supLo) {
-				b.vx -= tipAccel * dt
-			} else if cx > b.supHi && !b.leanR && !w.tip(b, 1, b.supHi) {
-				b.vx += tipAccel * dt
+			p, q := a, b // in order of Add, so a pair keeps its key
+			if p.id > q.id {
+				p, q = q, p
+			}
+			if n := collide(p, q, &cs); n > 0 {
+				w.addArbiter(pairKey{p, q, 0}, cs[:n])
 			}
 		}
-		b.vx = max(-maxSpeed, min(maxSpeed, b.vx))
-		b.vy = max(-maxSpeed, min(maxSpeed, b.vy))
 	}
 }
 
-// tip turns an upright body a quarter over the support edge at x, toward
-// dir, so it hangs down beside its support on its side. It reports false,
-// leaving b alone, if b has already tipped or the turned box would overlap
-// a wall, the floor or another body. Only a body that has just landed
-// tips; one resting on an edge stays put.
-func (w *World) tip(b *Body, dir int, edge float64) bool {
-	if b.turn != 0 || !b.landed {
-		return false
-	}
-	// Rotate the box about the bottom corner on the edge: the part that
-	// overhangs ends up below the pivot.
-	pivotY := b.y + b.h
-	nx := edge
-	ny := pivotY + (b.x - edge)
-	if dir < 0 {
-		nx = edge - b.h
-		ny = pivotY + (edge - (b.x + b.w))
-	}
-	nw, nh := b.h, b.w
-	if nx < 0 || nx+nw > w.w || ny+nh > w.h {
-		return false
-	}
-	for _, o := range w.bodies {
-		if o != b && nx < o.x+o.w && o.x < nx+nw && ny < o.y+o.h && o.y < ny+nh {
-			return false
+// addArbiter records the contacts cs for k. A contact within a pixel of
+// one the pair had last step takes over its impulses (warm starting).
+// Matching by position rather than by the edges that made a contact keeps
+// working for equal boxes stacked flush, whose clipped edges keep swapping.
+func (w *World) addArbiter(k pairKey, cs []contact) {
+	ar := arbiter{a: k.a, b: k.b, n: len(cs)}
+	copy(ar.c[:], cs)
+	if i, ok := w.prevIndex[k]; ok {
+		old := &w.prev[i]
+		for j := range ar.c[:ar.n] {
+			for _, oc := range old.c[:old.n] {
+				if d := oc.pos.sub(ar.c[j].pos); d.dot(d) < 1 {
+					ar.c[j].pn, ar.c[j].pt = oc.pn, oc.pt
+				}
+			}
 		}
 	}
-	b.x, b.y, b.w, b.h = nx, ny, nw, nh
-	b.px, b.py = nx, ny
-	b.vx, b.vy = 0, 0
-	b.turn = dir
-	b.wake()
-	return true
+	w.index[k] = len(w.arbs)
+	w.arbs = append(w.arbs, ar)
 }
 
-// findSupports records, for every body, the horizontal span of the bodies
-// it rests on and whether its sides touch a wall or another body. Touching
-// counts, so a body bridging two corners is supported and a body leaning on
-// a neighbour does not tip.
-func (w *World) findSupports() {
-	const touch = 0.1
-	for _, b := range w.bodies {
-		b.supLo, b.supHi = math.Inf(1), math.Inf(-1)
-		b.leanL, b.leanR = b.x <= touch, b.x+b.w >= w.w-touch
-	}
-	for _, p := range w.pairs {
-		a, b := p.a, p.b
-		ox := min(a.x+a.w, b.x+b.w) - max(a.x, b.x)
-		oy := min(a.y+a.h, b.y+b.h) - max(a.y, b.y)
-		switch {
-		case ox >= -touch && math.Abs(oy) <= touch:
-			if a.y > b.y {
-				a, b = b, a
-			}
-			a.supLo = min(a.supLo, max(a.x, b.x))
-			a.supHi = max(a.supHi, min(a.x+a.w, b.x+b.w))
-		case math.Abs(ox) <= touch && oy > margin:
-			if a.x > b.x {
-				a, b = b, a
-			}
-			a.leanR, b.leanL = true, true
+// preStep computes each contact's effective masses and target velocity.
+func (ar *arbiter) preStep(dt float64) {
+	a, b := ar.a, ar.b
+	for i := range ar.c[:ar.n] {
+		c := &ar.c[i]
+		c.ra, c.rb = c.pos.sub(a.pos), c.pos.sub(b.pos)
+		c.tangent = vec{c.normal.y, -c.normal.x}
+		mass := func(d vec) float64 {
+			ra, rb := c.ra.cross(d), c.rb.cross(d)
+			return 1 / (a.im() + b.im() + a.ii()*ra*ra + b.ii()*rb*rb)
+		}
+		c.massN, c.massT = mass(c.normal), mass(c.tangent)
+
+		vn := b.velocityAt(c.rb).sub(a.velocityAt(c.ra)).dot(c.normal)
+		c.approach = -vn
+		if c.sep > 0 {
+			// Speculative: allow closing the gap within this step.
+			c.bias = -c.sep / dt
+		} else {
+			c.bias = baumgarte / dt * max(0, -c.sep-slop)
+		}
+		if c.approach > bounceThreshold && c.sep < c.approach*dt {
+			c.bias = max(c.bias, restitution*c.approach)
 		}
 	}
 }
 
-// bounce returns the velocity into a static surface after contact, given the
-// velocity into it before (pre) and after (post) position correction.
-func bounce(pre, post float64) float64 {
-	if pre > bounceThreshold {
-		return -restitution * pre
+// warmStart applies the impulses carried over from the previous step.
+func (ar *arbiter) warmStart() {
+	for _, c := range ar.c[:ar.n] {
+		p := c.normal.mul(c.pn).add(c.tangent.mul(c.pt))
+		ar.a.push(p.neg(), c.ra)
+		ar.b.push(p, c.rb)
 	}
-	return min(post, 0)
 }
 
-// applyFriction slows v toward zero by at most limit.
-func applyFriction(v, limit float64) float64 {
-	return v - max(-limit, min(limit, v))
+// solve applies one round of normal and friction impulses.
+func (ar *arbiter) solve() {
+	a, b := ar.a, ar.b
+	for i := range ar.c[:ar.n] {
+		c := &ar.c[i]
+		dv := b.velocityAt(c.rb).sub(a.velocityAt(c.ra))
+		pn := max(c.pn+c.massN*(c.bias-dv.dot(c.normal)), 0)
+		p := c.normal.mul(pn - c.pn)
+		c.pn = pn
+		a.push(p.neg(), c.ra)
+		b.push(p, c.rb)
+
+		dv = b.velocityAt(c.rb).sub(a.velocityAt(c.ra))
+		limit := friction * c.pn
+		pt := max(-limit, min(limit, c.pt-c.massT*dv.dot(c.tangent)))
+		p = c.tangent.mul(pt - c.pt)
+		c.pt = pt
+		a.push(p.neg(), c.ra)
+		b.push(p, c.rb)
+	}
 }
 
-// wakeNeighbours wakes sleeping bodies that were hit hard this step or rest
+// wakeTouched wakes sleeping bodies that were hit hard this step or rest
 // on a body that is moving. Sleepers act as immovable during the step that
 // wakes them, so impacts never pump momentum down into a pile.
-func (w *World) wakeNeighbours() {
-	for _, c := range w.contacts {
-		if c.approach > wakeSpeed {
-			c.a.wake()
-			c.b.wake()
+func (w *World) wakeTouched() {
+	for i := range w.arbs {
+		ar := &w.arbs[i]
+		if ar.a.asleep == ar.b.asleep || ar.b == &w.ground {
+			continue
 		}
-	}
-	for _, p := range w.pairs {
-		top, below := p.a, p.b
-		if top.y > below.y {
-			top, below = below, top
+		// below > 0 when the awake body is under the sleeper.
+		sleeper, mover, below := ar.a, ar.b, ar.c[0].normal.y
+		if ar.b.asleep {
+			sleeper, mover, below = ar.b, ar.a, -below
 		}
-		if top.asleep && !below.asleep && math.Hypot(below.vx, below.vy) > sleepSpeed &&
-			min(top.x+top.w, below.x+below.w) > max(top.x, below.x) {
-			top.wake()
+		hit := false
+		for _, c := range ar.c[:ar.n] {
+			hit = hit || c.approach > wakeSpeed
+		}
+		if hit || below > 0.5 && mover.speed() > sleepSpeed {
+			sleeper.wake()
 		}
 	}
 }
 
-// sleep puts bodies that have been still for sleepDelay to rest, snapped to
-// whole pixels. Rounding is monotonic and sizes are integral, so snapping
-// never creates overlaps between resting bodies.
+// sleep puts bodies that have been still for sleepDelay to rest where they
+// are.
 func (w *World) sleep(dt float64) {
 	for _, b := range w.bodies {
 		if b.asleep {
 			continue
 		}
-		if math.Hypot(b.vx, b.vy) >= sleepSpeed {
+		if b.speed() >= sleepSpeed {
 			b.still = 0
 			continue
 		}
-		b.still += dt
-		if b.still >= sleepDelay {
+		if b.still += dt; b.still >= sleepDelay {
 			b.asleep = true
-			b.vx, b.vy = 0, 0
-			b.x, b.y = math.Round(b.x), math.Round(b.y)
+			b.vel, b.spin = vec{}, 0
 		}
 	}
 }

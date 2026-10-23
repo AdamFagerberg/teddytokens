@@ -2,7 +2,10 @@
 
 A terminal toy that shows how many Claude Code tokens you've spent. Every
 1,000 tokens a pixel-art character drops from the top of the terminal and
-lands on a pile with real (home-made) physics. When the pile reaches the top
+lands on a pile with real (home-made) physics: every character is a rigid
+body, so off-centre landings send it spinning, it tumbles off the others and
+comes to rest at any angle, leaning on or wedged between its neighbours.
+When the pile reaches the top
 the characters merge into a big one; three big ones merge into a giant. There
 is only ever one giant on screen: later ones join it, and the `N giants`
 counter in the status bar keeps score.
@@ -72,7 +75,7 @@ characters per second.
 | --- | --- |
 | `t` | toggle Claude / teddy skin (in place, the pile isn't disturbed) |
 | `r` | replay: drop every character again from the top |
-| `s` | shake: throw every character into the air |
+| `s` | shake: throw every character into the air, spinning |
 | `p` | cycle tokens per character: 100 → 500 → 1,000 → 10,000 (starts at `--per`) |
 | `q`, `Ctrl-C` | quit |
 

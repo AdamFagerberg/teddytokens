@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/AdamFagerberg/teddytokens/internal/physics"
 	"github.com/AdamFagerberg/teddytokens/internal/sprites"
 )
 
@@ -133,9 +135,9 @@ func TestKeys(t *testing.T) {
 		_, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		return cmd
 	}
-	before := m.chars[0].skins
+	before := m.chars[0].skin
 	press('t')
-	if !m.teddy || m.chars[0].skins != before || !m.world.Settled() {
+	if !m.teddy || m.chars[0].skin != before || !m.world.Settled() {
 		t.Fatal("t should re-skin in place without touching physics")
 	}
 	m.merge = &merge{}
@@ -150,12 +152,12 @@ func TestKeys(t *testing.T) {
 		t.Fatal("s should wake the pile")
 	}
 	press('r')
-	if len(m.world.Bodies()) != 5 || m.chars[0].skins != before {
+	if len(m.world.Bodies()) != 5 || m.chars[0].skin != before {
 		t.Fatal("r should drop the same characters again")
 	}
 	for _, b := range m.world.Bodies() {
-		if _, y := b.Pos(); y >= 0 {
-			t.Fatalf("replayed body starts on screen at y=%d", y)
+		if r := b.Bounds(); r.Max.Y > 0 || b.Angle() != 0 {
+			t.Fatalf("replayed body starts on screen or tilted: %v, %v rad", r, b.Angle())
 		}
 	}
 	if cmd := press('q'); cmd == nil || cmd() != tea.Quit() {
@@ -169,8 +171,7 @@ func TestKeys(t *testing.T) {
 // addChar adds a character of tier with its top-left corner at (x, y).
 func addChar(m *Model, tier int, x, y float64) *char {
 	c := m.newChar(tier)
-	w, h := c.size()
-	c.body = m.world.AddBody(x, y, w, h, 0)
+	m.addBody(c, x, y, 0)
 	m.chars = append(m.chars, c)
 	return c
 }
@@ -203,8 +204,8 @@ func TestPileAtTopMergesIntoBig(t *testing.T) {
 		t.Fatalf("got %d characters, giants %d; want one big", len(m.chars), m.giants)
 	}
 	runUntil(t, m, m.world.Settled)
-	if _, y := m.chars[0].body.Pos(); y != floor-5*h {
-		t.Fatalf("big rests at y=%d, want on the floor", y)
+	if r := m.chars[0].body.Bounds(); r.Max.Y != floor || r.Dy() != 5*h {
+		t.Fatalf("big rests at %v, want upright on the floor at %d", r, floor)
 	}
 }
 
@@ -287,7 +288,7 @@ func TestResizeRescalesToFit(t *testing.T) {
 
 // checkChars fails the test if there is more than one giant, a character is
 // outside the walls or below the floor or, when settled is set, overlaps
-// another.
+// another by more than a pixel.
 func checkChars(t *testing.T, m *Model, settled bool) {
 	t.Helper()
 	ww, wh := m.world.Size()
@@ -298,19 +299,52 @@ func checkChars(t *testing.T, m *Model, settled bool) {
 				t.Fatal("more than one giant")
 			}
 		}
-		ax, ay := a.body.Pos()
-		aw, ah := a.size()
-		if ax < 0 || ax+aw > ww || ay+ah > wh {
-			t.Fatalf("character %d (%dx%d) at %d,%d is outside %dx%d", i, aw, ah, ax, ay, ww, wh)
+		if r := a.body.Bounds(); r.Min.X < -1 || r.Max.X > ww+1 || r.Max.Y > wh+1 {
+			t.Fatalf("character %d at %v is outside %dx%d", i, r, ww, wh)
 		}
 		for _, b := range m.chars[i+1:] {
-			bx, by := b.body.Pos()
-			bw, bh := b.size()
-			if settled && ax < bx+bw && bx < ax+aw && ay < by+bh && by < ay+ah {
-				t.Fatalf("characters at %d,%d and %d,%d overlap", ax, ay, bx, by)
+			if d := overlap(a.body, b.body); settled && d > 1 {
+				t.Fatalf("characters at %v and %v overlap by %.2f px", a.body.Bounds(), b.body.Bounds(), d)
 			}
 		}
 	}
+}
+
+// overlap returns how deep two bodies overlap, or a negative value if they
+// don't, by the separating axis test.
+func overlap(a, b *physics.Rigidbody) float64 {
+	ca, cb := corners(a), corners(b)
+	depth := math.Inf(1)
+	for _, body := range []*physics.Rigidbody{a, b} {
+		cos, sin := math.Cos(body.Angle()), math.Sin(body.Angle())
+		for _, axis := range [][2]float64{{cos, sin}, {-sin, cos}} {
+			loA, hiA := project(ca, axis)
+			loB, hiB := project(cb, axis)
+			depth = min(depth, min(hiA, hiB)-max(loA, loB))
+		}
+	}
+	return depth
+}
+
+func corners(b *physics.Rigidbody) [4][2]float64 {
+	x, y := b.Centre()
+	w, h := b.Size()
+	cos, sin := math.Cos(b.Angle()), math.Sin(b.Angle())
+	var cs [4][2]float64
+	for i, d := range [4][2]float64{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}} {
+		dx, dy := d[0]*float64(w)/2, d[1]*float64(h)/2
+		cs[i] = [2]float64{x + cos*dx - sin*dy, y + sin*dx + cos*dy}
+	}
+	return cs
+}
+
+func project(cs [4][2]float64, axis [2]float64) (lo, hi float64) {
+	lo, hi = math.Inf(1), math.Inf(-1)
+	for _, c := range cs {
+		p := c[0]*axis[0] + c[1]*axis[1]
+		lo, hi = min(lo, p), max(hi, p)
+	}
+	return lo, hi
 }
 
 // TestSmallTerminalKeepsMerging rains characters for ten minutes while the

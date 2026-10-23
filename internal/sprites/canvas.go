@@ -1,6 +1,7 @@
 package sprites
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -23,17 +24,25 @@ func (c *Canvas) Clear() {
 	clear(c.pix)
 }
 
-// Blit draws the opaque pixels of s with its top-left corner at pixel (x, y),
-// clipping anything outside the canvas.
-func (c *Canvas) Blit(s *Sprite, x, y int) {
-	for sy := range s.H {
-		py := y + sy
-		if py < 0 || py >= c.h {
-			continue
-		}
-		for sx := range s.W {
-			px := x + sx
-			if px < 0 || px >= c.w {
+// BlitRotated draws the opaque pixels of s turned clockwise by angle
+// radians about its centre, which lands at pixel position (cx, cy), clipping
+// anything outside the canvas. Each canvas pixel takes the sprite pixel under
+// its centre, so whole quarter turns draw the sprite's pixels exactly.
+func (c *Canvas) BlitRotated(s *Sprite, cx, cy, angle float64) {
+	cos, sin := math.Cos(angle), math.Sin(angle)
+	hw, hh := float64(s.W)/2, float64(s.H)/2
+	ex := math.Abs(cos)*hw + math.Abs(sin)*hh
+	ey := math.Abs(sin)*hw + math.Abs(cos)*hh
+	x0, x1 := max(0, int(math.Floor(cx-ex))), min(c.w, int(math.Ceil(cx+ex)))
+	y0, y1 := max(0, int(math.Floor(cy-ey))), min(c.h, int(math.Ceil(cy+ey)))
+	for py := y0; py < y1; py++ {
+		dy := float64(py) + 0.5 - cy
+		for px := x0; px < x1; px++ {
+			dx := float64(px) + 0.5 - cx
+			// Rotate back into the sprite's frame.
+			sx := int(math.Floor(cos*dx + sin*dy + hw))
+			sy := int(math.Floor(-sin*dx + cos*dy + hh))
+			if sx < 0 || sx >= s.W || sy < 0 || sy >= s.H {
 				continue
 			}
 			if p := s.at(sx, sy); p.Opaque {

@@ -60,28 +60,19 @@ var tierScale = [...]int{small: 1, big: 5, giant: 8}
 // skin caches one character's tinted sprites so toggling never re-tints.
 type skin struct{ claude, teddy *sprites.Sprite }
 
-// char is a character on screen. Its body's size is its sprites' size for
-// the way the body has tipped.
+// char is a character on screen: its sprites and the rigid body of the same
+// size that carries them.
 type char struct {
-	body    *physics.Body
+	body    *physics.Rigidbody
 	tier    int
 	tint    float64
-	skins   [3]skin // by body turn + 1: tipped left, upright, tipped right
+	skin    skin
 	merging bool
 }
 
-// size is the body's size, or the upright sprite's before it has a body.
+// size is the character's unrotated size.
 func (c *char) size() (w, h int) {
-	if c.body != nil {
-		return c.body.Size()
-	}
-	return c.skins[1].claude.W, c.skins[1].claude.H
-}
-
-func (c *char) centre() (x, y float64) {
-	bx, by := c.body.Pos()
-	w, h := c.size()
-	return float64(bx) + float64(w)/2, float64(by) + float64(h)/2
+	return c.skin.claude.W, c.skin.claude.H
 }
 
 // merge is the animation of every character of one tier flying together:
@@ -280,30 +271,37 @@ func (m *Model) newChar(tier int) *char {
 	return c
 }
 
-// reskin tints c's sprites at its tier's scale for the current world, in
-// every orientation.
+// reskin tints c's sprites at its tier's scale for the current world.
 func (m *Model) reskin(c *char) {
 	k := m.scale(c.tier)
-	claude, teddy := sprites.Claude.Tinted(c.tint).Scaled(k), sprites.Teddy.Tinted(c.tint).Scaled(k)
-	for i := range c.skins {
-		c.skins[i] = skin{claude.Rotated(i - 1), teddy.Rotated(i - 1)}
-	}
+	c.skin = skin{sprites.Claude.Tinted(c.tint).Scaled(k), sprites.Teddy.Tinted(c.tint).Scaled(k)}
+}
+
+// addBody gives c an upright body with its top-left corner at (x, y),
+// moving sideways at vx px/s.
+func (m *Model) addBody(c *char, x, y, vx float64) {
+	w, h := c.size()
+	c.body = physics.NewRigidbody(w, h)
+	c.body.SetCentre(x+float64(w)/2, y+float64(h)/2)
+	c.body.SetVelocity(vx, 0)
+	m.world.Add(c.body)
 }
 
 // fit gives c a new body if the world's size changed its tier's scale.
 func (m *Model) fit(c *char) {
-	if c.skins[1].claude.W == m.scale(c.tier)*sprites.Claude.W {
+	if c.skin.claude.W == m.scale(c.tier)*sprites.Claude.W {
 		return
 	}
-	x, y := c.centre()
+	x, y := c.body.Centre()
 	m.world.Remove(c.body)
 	c.body = nil // comes back upright
 	m.reskin(c)
 	m.place(c, x, y)
 }
 
-// place adds a body for c centred on (x, y), moved inside the walls and up
-// above every other character in its columns so it overlaps nothing.
+// place adds an upright body for c centred on (x, y), moved inside the
+// walls and up above every other character's bounding box in its columns so
+// it overlaps nothing.
 func (m *Model) place(c *char, x, y float64) {
 	ww, _ := m.world.Size()
 	w, h := c.size()
@@ -313,12 +311,11 @@ func (m *Model) place(c *char, x, y float64) {
 		if o == c {
 			continue
 		}
-		ox, oy := o.body.Pos()
-		if ow, _ := o.size(); ox < left+w && left < ox+ow {
-			top = min(top, float64(oy-h))
+		if r := o.body.Bounds(); r.Min.X < left+w && left < r.Max.X {
+			top = min(top, float64(r.Min.Y-h))
 		}
 	}
-	c.body = m.world.AddBody(float64(left), top, w, h, 0)
+	m.addBody(c, float64(left), top, 0)
 }
 
 // pileCapacity estimates how many characters fit before the pile reaches
@@ -345,7 +342,7 @@ func (m *Model) dropRows(cs []*char, bottom float64) {
 		for _, c := range cs[:k] {
 			w, h := c.size()
 			x += m.rng.Float64() * slack / float64(k)
-			c.body = m.world.AddBody(x, bottom-float64(h), w, h, 0)
+			m.addBody(c, x, bottom-float64(h), 0)
 			x += float64(w)
 		}
 		cs, bottom = cs[k:], bottom-float64(rowH+1)
@@ -358,7 +355,7 @@ func (m *Model) spawnBody() {
 	c := m.newChar(small)
 	w, h := c.size()
 	x := m.rng.Float64() * float64(ww-w)
-	c.body = m.world.AddBody(x, -float64(h), w, h, (m.rng.Float64()*2-1)*spawnSpeed)
+	m.addBody(c, x, -float64(h), (m.rng.Float64()*2-1)*spawnSpeed)
 	m.chars = append(m.chars, c)
 }
 
@@ -454,17 +451,16 @@ func (m *Model) startMerge(from, n int) {
 		case c.tier == from && n > 0:
 			n--
 			c.merging = true
-			x, y := c.body.Pos()
-			w, h := c.size()
-			x0, y0 = min(x0, float64(x)), min(y0, float64(y))
-			x1, y1 = max(x1, float64(x+w)), max(y1, float64(y+h))
+			r := c.body.Bounds()
+			x0, y0 = min(x0, float64(r.Min.X)), min(y0, float64(r.Min.Y))
+			x1, y1 = max(x1, float64(r.Max.X)), max(y1, float64(r.Max.Y))
 		case c.tier == giant && g.tier == giant:
 			g.into = c
 		}
 	}
 	g.x, g.y = (x0+x1)/2, (y0+y1)/2
 	if g.into != nil {
-		g.x, g.y = g.into.centre()
+		g.x, g.y = g.into.body.Centre()
 	}
 	m.merge = g
 }
@@ -510,18 +506,16 @@ func (m *Model) render() string {
 	}
 	m.canvas.Clear()
 	for _, c := range m.chars {
-		x, y := c.body.Pos()
+		x, y := c.body.Centre()
 		if g := m.merge; c.merging {
-			cx, cy := c.centre()
-			x += int(math.Round((g.x - cx) * g.progress))
-			y += int(math.Round((g.y - cy) * g.progress))
+			x += (g.x - x) * g.progress
+			y += (g.y - y) * g.progress
 		}
-		s := c.skins[c.body.Turn()+1]
-		sp := s.claude
+		sp := c.skin.claude
 		if m.teddy {
-			sp = s.teddy
+			sp = c.skin.teddy
 		}
-		m.canvas.Blit(sp, x, y)
+		m.canvas.BlitRotated(sp, x, y, c.body.Angle())
 	}
 	pile := m.canvas.Render()
 	if len(m.chars) == 0 {

@@ -96,22 +96,3 @@ func (s *Sprite) Scaled(k int) *Sprite {
 	}
 	return t
 }
-
-// Rotated returns s turned a quarter clockwise for dir 1 or anticlockwise
-// for dir -1, so its top points the way it tipped; any other dir returns s.
-func (s *Sprite) Rotated(dir int) *Sprite {
-	if dir != 1 && dir != -1 {
-		return s
-	}
-	t := &Sprite{W: s.H, H: s.W, pix: make([]Color, 0, len(s.pix))}
-	for y := range t.H {
-		for x := range t.W {
-			if dir == 1 {
-				t.pix = append(t.pix, s.at(y, s.H-1-x))
-			} else {
-				t.pix = append(t.pix, s.at(s.W-1-y, x))
-			}
-		}
-	}
-	return t
-}
