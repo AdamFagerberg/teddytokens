@@ -29,12 +29,13 @@ func checkPile(t *testing.T, w *World) {
 		if !a.asleep {
 			t.Errorf("body %d at %d,%d is awake", i, ax, ay)
 		}
-		if ax < 0 || ay < 0 || ax+bw > width || ay+bh > height {
+		aw, ah := int(a.w), int(a.h)
+		if ax < 0 || ay < 0 || ax+aw > width || ay+ah > height {
 			t.Errorf("body %d at %d,%d is outside %dx%d", i, ax, ay, width, height)
 		}
 		for j, b := range bodies[i+1:] {
 			bx, by := b.Pos()
-			if ax < bx+bw && bx < ax+bw && ay < by+bh && by < ay+bh {
+			if ax < bx+int(b.w) && bx < ax+aw && ay < by+int(b.h) && by < ay+ah {
 				t.Errorf("bodies %d (%d,%d) and %d (%d,%d) overlap", i, ax, ay, i+1+j, bx, by)
 			}
 		}
@@ -168,5 +169,34 @@ func TestShakeLaunchesAndResettles(t *testing.T) {
 	checkPile(t, w)
 	if after, _ := w.HighestRestingTop(); after < before-3*bh {
 		t.Errorf("pile top went from %d to %d after a shake", before, after)
+	}
+}
+
+func TestMixedSizesStack(t *testing.T) {
+	w := NewWorld(120, 120)
+	w.AddBody(20, -40, 5*bw, 5*bh, 0) // giant
+	w.AddBody(30, -70, 3*bw, 3*bh, 0) // big, lands on the giant
+	drop(w, 30, rand.New(rand.NewPCG(9, 10)))
+	for _, b := range w.Bodies()[2:] {
+		b.y -= 80 // above the giant and the big
+	}
+	if !w.Settle(5000) {
+		t.Fatal("mixed pile did not settle")
+	}
+	checkPile(t, w)
+}
+
+func TestRemoveDropsWhatItHeld(t *testing.T) {
+	w := NewWorld(40, 40)
+	base := w.AddBody(10, 40-bh, bw, bh, 0)
+	top := w.AddBody(10, 40-2*bh, bw, bh, 0)
+	w.Settle(100)
+	w.Remove(base)
+	if len(w.Bodies()) != 1 || w.Settled() {
+		t.Fatal("Remove should delete the body and wake the rest")
+	}
+	w.Settle(600)
+	if _, y := top.Pos(); y != 40-bh {
+		t.Errorf("body left resting at y=%d, want the floor", y)
 	}
 }

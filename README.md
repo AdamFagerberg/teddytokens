@@ -3,7 +3,9 @@
 A terminal toy that shows how many Claude Code tokens you've spent. Every
 10,000 tokens a pixel-art character drops from the top of the terminal and
 lands on a pile with real (home-made) physics. When the pile reaches the top
-it gets squashed and cleared, and a `×N` counter keeps score.
+the characters merge into a big one; three big ones merge into a giant. There
+is only ever one giant on screen: later ones join it, and the `N giants`
+counter in the status bar keeps score.
 
 <!-- TODO: add a recording (e.g. `vhs` or asciinema + agg) at docs/demo.gif
 and embed it here: ![teddytokens demo](docs/demo.gif) -->
@@ -68,7 +70,7 @@ characters per second.
 | Key | Action |
 | --- | --- |
 | `t` | toggle Claude / teddy skin (in place, the pile isn't disturbed) |
-| `r` | replay: drop the whole pile again from the top |
+| `r` | replay: drop every character again from the top |
 | `s` | shake: throw every character into the air |
 | `q`, `Ctrl-C` | quit |
 
@@ -91,9 +93,11 @@ only newly appended bytes every half second, so it stays cheap on large logs.
   the current directory. If a newer session starts, teddytokens follows it and
   keeps adding to the running total.
 
-A very long history would bury the screen many times over, so at startup the
-piles it would have filled are counted straight into `×N` and only the
-remainder is drawn.
+A very long history would bury the screen many times over, so at startup
+every pile it would have filled becomes a big character, every three bigs a
+giant, and only the remainder is drawn as small ones. A huge burst is handled
+the same way. In a small terminal the big and giant characters are drawn at a
+smaller scale so they still fit.
 
 ## Development
 

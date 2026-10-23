@@ -133,6 +133,15 @@ func (w *World) AddBody(x, y float64, width, height int, vx float64) *Body {
 	return b
 }
 
+// Remove deletes b and wakes every other body, since anything it held up
+// must fall.
+func (w *World) Remove(b *Body) {
+	w.bodies = slices.DeleteFunc(w.bodies, func(o *Body) bool { return o == b })
+	for _, o := range w.bodies {
+		o.wake()
+	}
+}
+
 // Clear removes all bodies.
 func (w *World) Clear() {
 	w.bodies = nil

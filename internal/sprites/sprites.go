@@ -89,3 +89,14 @@ func mustParse(grid string, palette map[byte]Color) *Sprite {
 	}
 	return s
 }
+
+// Scaled returns s enlarged k times, each pixel repeated in a k x k block.
+func (s *Sprite) Scaled(k int) *Sprite {
+	t := &Sprite{W: s.W * k, H: s.H * k, pix: make([]Color, 0, s.W*s.H*k*k)}
+	for y := range t.H {
+		for x := range t.W {
+			t.pix = append(t.pix, s.at(x/k, y/k))
+		}
+	}
+	return t
+}

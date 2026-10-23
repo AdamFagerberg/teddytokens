@@ -56,8 +56,8 @@ func (m *Model) hud() string {
 		m.bar.ViewAs(m.spawn.progress()),
 		hudStyle.Render(m.scope),
 	}
-	if m.cleared > 0 {
-		parts = append(parts, numStyle.Render(fmt.Sprintf("×%d", m.cleared)))
+	if m.giants > 0 {
+		parts = append(parts, numStyle.Render(strconv.Itoa(m.giants))+hudStyle.Render(" giants"))
 	}
 	if m.err != nil {
 		parts = append(parts, errStyle.Render("⚠ "+m.err.Error()))

@@ -2,6 +2,7 @@ package sprites
 
 import (
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -68,5 +69,18 @@ func TestTintedStaysInRange(t *testing.T) {
 	}
 	if Claude.Tinted(0).pix[16] != Claude.pix[16] {
 		t.Error("Tinted(0) should round-trip colors exactly")
+	}
+}
+
+func TestScaled(t *testing.T) {
+	red, blue := hex(0xFF0000), hex(0x0000FF)
+	s := &Sprite{W: 2, H: 1, pix: []Color{red, blue}}
+	got := s.Scaled(2)
+	want := []Color{red, red, blue, blue, red, red, blue, blue}
+	if got.W != 4 || got.H != 2 || !slices.Equal(got.pix, want) {
+		t.Errorf("Scaled(2) = %dx%d %v, want 4x2 %v", got.W, got.H, got.pix, want)
+	}
+	if big := Claude.Scaled(5); big.W != 70 || big.H != 40 || big.at(69, 39) != Claude.at(13, 7) {
+		t.Errorf("Claude.Scaled(5) is %dx%d", big.W, big.H)
 	}
 }

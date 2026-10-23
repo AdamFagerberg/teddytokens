@@ -74,19 +74,6 @@ func TestPileCapacity(t *testing.T) {
 	}
 }
 
-func TestSquashedTop(t *testing.T) {
-	const h, floor = 8, 80
-	if got := squashedTop(10, h, floor, 1); got != 10 {
-		t.Errorf("scale 1 moved body to %d", got)
-	}
-	if got := squashedTop(10, h, floor, 0); got != floor {
-		t.Errorf("scale 0 left body at %d, want hidden at %d", got, floor)
-	}
-	if got := squashedTop(10, h, floor, -0.2); got < floor {
-		t.Errorf("overshoot brought body back to %d", got)
-	}
-}
-
 type noSource struct{}
 
 func (noSource) Poll() (int64, error) { return 0, nil }
@@ -99,8 +86,8 @@ func newTestModel(initial int64) *Model {
 
 func TestStartupPileIsSettled(t *testing.T) {
 	m := newTestModel(205_000)
-	if n := len(m.world.Bodies()); n != 20 || len(m.skins) != n {
-		t.Fatalf("got %d bodies, %d skins, want 20", n, len(m.skins))
+	if n := len(m.world.Bodies()); n != 20 || len(m.chars) != n {
+		t.Fatalf("got %d bodies, %d skins, want 20", n, len(m.chars))
 	}
 	if !m.world.Settled() {
 		t.Fatal("startup pile is still moving")
@@ -110,12 +97,20 @@ func TestStartupPileIsSettled(t *testing.T) {
 	}
 }
 
-func TestHugeHistoryCountsClearedPiles(t *testing.T) {
-	m := newTestModel(10_000 * 1_000)
+func TestHugeHistoryBecomesBigsAndGiants(t *testing.T) {
 	capacity := pileCapacity(120, 2*39)
-	if m.cleared != 1000/capacity || len(m.world.Bodies()) != 1000%capacity {
-		t.Fatalf("cleared %d with %d bodies, capacity %d", m.cleared, len(m.world.Bodies()), capacity)
+	m := newTestModel(10_000 * int64(7*capacity+5)) // 7 piles: 2 giants and a big
+	var n [len(tierScale)]int
+	for _, c := range m.chars {
+		n[c.tier]++
 	}
+	if m.giants != 2 || n != [...]int{small: 5, big: 1, giant: 1} {
+		t.Fatalf("giants %d, characters per tier %v", m.giants, n)
+	}
+	if !m.world.Settled() {
+		t.Fatal("startup pile is still moving")
+	}
+	checkChars(t, m, true)
 }
 
 func TestKeys(t *testing.T) {
@@ -124,17 +119,24 @@ func TestKeys(t *testing.T) {
 		_, cmd := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		return cmd
 	}
-	before := m.skins[0]
+	before := m.chars[0].skin
 	press('t')
-	if !m.teddy || m.skins[0] != before || !m.world.Settled() {
+	if !m.teddy || m.chars[0].skin != before || !m.world.Settled() {
 		t.Fatal("t should re-skin in place without touching physics")
 	}
+	m.merge = &merge{}
 	press('s')
-	if m.world.Settled() || !m.disturbed {
-		t.Fatal("s should wake the pile and mark it disturbed")
+	press('r')
+	if !m.world.Settled() {
+		t.Fatal("s and r should be ignored during a merge")
+	}
+	m.merge = nil
+	press('s')
+	if m.world.Settled() {
+		t.Fatal("s should wake the pile")
 	}
 	press('r')
-	if len(m.world.Bodies()) != 5 || m.skins[0] != before {
+	if len(m.world.Bodies()) != 5 || m.chars[0].skin != before {
 		t.Fatal("r should drop the same characters again")
 	}
 	for _, b := range m.world.Bodies() {
@@ -150,54 +152,137 @@ func TestKeys(t *testing.T) {
 	}
 }
 
-func TestPileAtTopSquashesAndClears(t *testing.T) {
+// addChar adds a character of tier with its top-left corner at (x, y).
+func addChar(m *Model, tier int, x, y float64) *char {
+	c := m.newChar(tier)
+	w, h := c.size()
+	c.body = m.world.AddBody(x, y, w, h, 0)
+	m.chars = append(m.chars, c)
+	return c
+}
+
+// runUntil steps frames of 1/fps seconds until done or a minute has passed.
+func runUntil(t *testing.T, m *Model, done func() bool) {
+	t.Helper()
+	now := time.Unix(0, 0)
+	for range 60 * fps {
+		if done() {
+			return
+		}
+		now = now.Add(time.Second / fps)
+		m.frame(now)
+	}
+	t.Fatal("timed out")
+}
+
+func TestPileAtTopMergesIntoBig(t *testing.T) {
 	m := newTestModel(0)
 	_, floor := m.world.Size()
 	h := sprites.Claude.H
-	m.world.AddBody(0, float64(h), sprites.Claude.W, floor-h, 0) // a pillar up to the top
-	m.skins = append(m.skins, skin{})
-	m.addBody(0, 0, 0)
+	for i := range floor/h + 1 { // a column one character taller than the world
+		addChar(m, small, 0, float64(floor-(i+1)*h))
+	}
 	m.world.Settle(600)
-	now := time.Unix(0, 0)
-	for i := 0; i < 300 && m.cleared == 0; i++ {
-		now = now.Add(time.Second / fps)
-		m.frame(now)
+	runUntil(t, m, func() bool { return m.merge != nil })
+	runUntil(t, m, func() bool { return m.merge == nil })
+	if len(m.chars) != 1 || m.chars[0].tier != big || m.giants != 0 {
+		t.Fatalf("got %d characters, giants %d; want one big", len(m.chars), m.giants)
 	}
-	if m.cleared != 1 || len(m.world.Bodies()) != 0 || m.squash != nil {
-		t.Fatalf("cleared %d, %d bodies left, squashing %v", m.cleared, len(m.world.Bodies()), m.squash != nil)
-	}
-}
-
-// runFrames steps n frames of 1/fps seconds.
-func runFrames(m *Model, n int) {
-	now := time.Unix(0, 0)
-	for range n {
-		now = now.Add(time.Second / fps)
-		m.frame(now)
+	runUntil(t, m, m.world.Settled)
+	if _, y := m.chars[0].body.Pos(); y != floor-3*h {
+		t.Fatalf("big rests at y=%d, want on the floor", y)
 	}
 }
 
-func TestShrinkOverflowDoesNotCount(t *testing.T) {
-	m := newTestModel(200_000) // 20 characters: several rows
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: sprites.Claude.H + hudRows})
-	runFrames(m, 30*30)
-	if m.cleared != 0 || len(m.world.Bodies()) != 0 {
-		t.Fatalf("after shrinking: cleared %d, %d bodies left", m.cleared, len(m.world.Bodies()))
-	}
-	if m.disturbed {
-		t.Fatal("disturbed flag still set once the world is empty")
+func TestThreeBigsMakeOneGiant(t *testing.T) {
+	m := newTestModel(0)
+	for round := 1; round <= 2; round++ {
+		for i := range 3 {
+			addChar(m, big, float64(i*40), -30)
+		}
+		runUntil(t, m, func() bool { return m.giants == round && m.world.Settled() })
+		if len(m.chars) != 1 || m.chars[0].tier != giant {
+			t.Fatalf("round %d: %d characters, want the one giant", round, len(m.chars))
+		}
 	}
 }
 
-func TestBigBurstBecomesClearedPiles(t *testing.T) {
+func TestBigBurstBecomesPiles(t *testing.T) {
 	m := newTestModel(0)
 	capacity := pileCapacity(m.world.Size())
-	m.Update(pollMsg{delta: 10_000 * int64(10*capacity+3)})
-	if m.cleared != 10 || m.spawn.queue != 3 {
-		t.Fatalf("cleared %d, queue %d; want 10, 3", m.cleared, m.spawn.queue)
+	m.Update(pollMsg{delta: 10_000 * int64(10*capacity+3)}) // 10 piles: 3 giants and a big
+	runUntil(t, m, func() bool { return len(m.chars) == 3 })
+	if m.giants != 3 || len(m.chars) != 3 || m.chars[0].tier != giant || m.chars[1].tier != big {
+		t.Fatalf("giants %d, %d characters", m.giants, len(m.chars))
 	}
-	m.Update(pollMsg{delta: 10_000 * int64(capacity-3)})
-	if m.cleared != 10 || m.spawn.queue != capacity {
-		t.Fatalf("a pile's worth: cleared %d, queue %d", m.cleared, m.spawn.queue)
+	if m.spawn.queue != 2 { // the first of the 3 left over has fallen
+		t.Fatalf("queue %d, want 2", m.spawn.queue)
+	}
+}
+
+func TestResizeRescalesToFit(t *testing.T) {
+	m := newTestModel(10_000 * int64(3*pileCapacity(120, 2*39))) // one giant
+	// 5x would be taller than half of the 78-pixel world.
+	if w, _ := m.chars[0].size(); w != 4*sprites.Claude.W {
+		t.Fatalf("giant is %d wide at 120x40", w)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	if w, h := m.chars[0].size(); w > 60 || h > 19 {
+		t.Fatalf("giant is %dx%d in a 60x38 world", w, h)
+	}
+	runUntil(t, m, m.world.Settled)
+	checkChars(t, m, true)
+}
+
+// checkChars fails the test if there is more than one giant, a character is
+// outside the walls or below the floor or, when settled is set, overlaps
+// another.
+func checkChars(t *testing.T, m *Model, settled bool) {
+	t.Helper()
+	ww, wh := m.world.Size()
+	giants := 0
+	for i, a := range m.chars {
+		if a.tier == giant {
+			if giants++; giants > 1 {
+				t.Fatal("more than one giant")
+			}
+		}
+		ax, ay := a.body.Pos()
+		aw, ah := a.size()
+		if ax < 0 || ax+aw > ww || ay+ah > wh {
+			t.Fatalf("character %d (%dx%d) at %d,%d is outside %dx%d", i, aw, ah, ax, ay, ww, wh)
+		}
+		for _, b := range m.chars[i+1:] {
+			bx, by := b.body.Pos()
+			bw, bh := b.size()
+			if settled && ax < bx+bw && bx < ax+aw && ay < by+bh && by < ay+ah {
+				t.Fatalf("characters at %d,%d and %d,%d overlap", ax, ay, bx, by)
+			}
+		}
+	}
+}
+
+// TestSmallTerminalKeepsMerging rains characters for ten minutes while the
+// terminal changes size, down to too small, and checks the pile never gets
+// stuck or leaves the world.
+func TestSmallTerminalKeepsMerging(t *testing.T) {
+	m := New(Config{Source: noSource{}, Per: 1, Scope: "test", Seed: 2})
+	sizes := [][2]int{{30, 10}, {60, 20}, {30, 10}, {29, 10}, {120, 40}, {30, 9}}
+	now := time.Unix(0, 0)
+	for i := range 600 * fps {
+		if i%(100*fps) == 0 {
+			sz := sizes[i/(100*fps)]
+			m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		}
+		if i%(fps/2) == 0 {
+			m.Update(pollMsg{delta: 1}) // two characters a second
+		}
+		now = now.Add(time.Second / fps)
+		m.frame(now)
+		checkChars(t, m, m.merge == nil && m.world.Settled())
+		_ = m.render()
+	}
+	if m.giants < 10 || len(m.chars) > 30 {
+		t.Fatalf("after ten minutes: %d giants, %d characters", m.giants, len(m.chars))
 	}
 }
