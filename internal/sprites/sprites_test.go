@@ -7,8 +7,8 @@ import (
 )
 
 func TestSpritesShareFootprint(t *testing.T) {
-	if Claude.W != 14 || Claude.H != 8 {
-		t.Errorf("Claude is %dx%d, want 14x8", Claude.W, Claude.H)
+	if Claude.W != 9 || Claude.H != 6 {
+		t.Errorf("Claude is %dx%d, want 9x6", Claude.W, Claude.H)
 	}
 	if Teddy.W != Claude.W || Teddy.H != Claude.H {
 		t.Errorf("Teddy is %dx%d, want %dx%d", Teddy.W, Teddy.H, Claude.W, Claude.H)
@@ -80,7 +80,7 @@ func TestScaled(t *testing.T) {
 	if got.W != 4 || got.H != 2 || !slices.Equal(got.pix, want) {
 		t.Errorf("Scaled(2) = %dx%d %v, want 4x2 %v", got.W, got.H, got.pix, want)
 	}
-	if big := Claude.Scaled(5); big.W != 70 || big.H != 40 || big.at(69, 39) != Claude.at(13, 7) {
+	if big := Claude.Scaled(5); big.W != 45 || big.H != 30 || big.at(44, 29) != Claude.at(8, 5) {
 		t.Errorf("Claude.Scaled(5) is %dx%d", big.W, big.H)
 	}
 }

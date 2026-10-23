@@ -201,7 +201,7 @@ func TestPileAtTopMergesIntoBig(t *testing.T) {
 		t.Fatalf("got %d characters, giants %d; want one big", len(m.chars), m.giants)
 	}
 	runUntil(t, m, m.world.Settled)
-	if _, y := m.chars[0].body.Pos(); y != floor-3*h {
+	if _, y := m.chars[0].body.Pos(); y != floor-5*h {
 		t.Fatalf("big rests at y=%d, want on the floor", y)
 	}
 }
@@ -249,8 +249,8 @@ func TestBigBurstBecomesPiles(t *testing.T) {
 
 func TestResizeRescalesToFit(t *testing.T) {
 	m := newTestModel(10_000 * int64(3*pileCapacity(120, 2*39))) // one giant
-	// 5x would be taller than half of the 78-pixel world.
-	if w, _ := m.chars[0].size(); w != 4*sprites.Claude.W {
+	// 8x would be taller than half of the 78-pixel world.
+	if w, _ := m.chars[0].size(); w != 6*sprites.Claude.W {
 		t.Fatalf("giant is %d wide at 120x40", w)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})

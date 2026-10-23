@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const bw, bh = 14, 8 // sprite footprint in pixels
+const bw, bh = 9, 6 // sprite footprint in pixels
 
 // drop adds n bodies in staggered, non-overlapping slots above the world.
 func drop(w *World, n int, rng *rand.Rand) {

@@ -1,7 +1,7 @@
 # teddytokens
 
 A terminal toy that shows how many Claude Code tokens you've spent. Every
-10,000 tokens a pixel-art character drops from the top of the terminal and
+1,000 tokens a pixel-art character drops from the top of the terminal and
 lands on a pile with real (home-made) physics. When the pile reaches the top
 the characters merge into a big one; three big ones merge into a giant. There
 is only ever one giant on screen: later ones join it, and the `N giants`
@@ -58,7 +58,7 @@ characters per second.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--per <n>` | `10000` | tokens per character |
+| `--per <n>` | `1000` | tokens per character |
 | `--teddy` | off | start with the teddy bear skin |
 | `--today` | off | count sessions from all projects, today (local time) |
 | `--all` | off | count every session in every project |

@@ -31,7 +31,7 @@ func main() {
 }
 
 func run() error {
-	per := flag.Int64("per", 10000, "tokens per character")
+	per := flag.Int64("per", 1000, "tokens per character")
 	teddy := flag.Bool("teddy", false, "start with the teddy bear skin")
 	today := flag.Bool("today", false, "count all projects' sessions from today")
 	all := flag.Bool("all", false, "count every session in every project")
@@ -54,7 +54,7 @@ func run() error {
 	cfg := ui.Config{Per: *per, Teddy: *teddy, Seed: uint64(time.Now().UnixNano())}
 	if *demo {
 		d := &demoSource{rng: rand.New(rand.NewPCG(cfg.Seed, cfg.Seed))}
-		cfg.Source, cfg.Initial, cfg.Scope = d, 180_000, "demo" // a small existing pile
+		cfg.Source, cfg.Initial, cfg.Scope = d, 20_000, "demo" // a small existing pile
 	} else {
 		scope := tokens.ScopeSession
 		switch {
@@ -86,9 +86,9 @@ type demoSource struct{ rng *rand.Rand }
 func (d *demoSource) Poll() (int64, error) {
 	switch r := d.rng.Float64(); {
 	case r < 0.04:
-		return 120_000 + d.rng.Int64N(130_000), nil // a big tool result or long answer
+		return 24_000 + d.rng.Int64N(26_000), nil // a big tool result or long answer
 	case r < 0.75:
-		return 1_000 + d.rng.Int64N(8_000), nil
+		return 200 + d.rng.Int64N(1_600), nil
 	}
 	return 0, nil
 }

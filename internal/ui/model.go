@@ -52,7 +52,7 @@ const (
 )
 
 // tierScale is each tier's sprite scale when the terminal is big enough.
-var tierScale = [...]int{small: 1, big: 3, giant: 5}
+var tierScale = [...]int{small: 1, big: 5, giant: 8}
 
 // skin caches one character's tinted sprites so toggling never re-tints.
 type skin struct{ claude, teddy *sprites.Sprite }

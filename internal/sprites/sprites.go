@@ -11,28 +11,24 @@ import (
 )
 
 // Both sprites share one footprint so toggling the skin never changes a
-// physics body's size. Claude's 14x7 grid gets a transparent top row; the
-// half-row gap it leaves between stacked bodies reads as a natural seam.
+// physics body's size. The body carries the shape; arms and legs are one
+// pixel thick so the small sprite doesn't look squashed.
 const claudeGrid = `
-..............
-..XXXXXXXXXX..
-..XXEXXXXEXX..
-..XXEXXXXEXX..
-XXXXXXXXXXXXXX
-..XXXXXXXXXX..
-..XXXXXXXXXX..
-...X.X..X.X...
+.XXXXXXX.
+.XEXXXEX.
+XXXXXXXXX
+.XXXXXXX.
+.XXXXXXX.
+.X.X.X.X.
 `
 
 const teddyGrid = `
-.BBB......BBB.
-BTTBBBBBBBBTTB
-BTBBBBBBBBBBTB
-.BBKBBBBBBKBB.
-.BBKBTTTTBKBB.
-.BBBTTKKTTBBB.
-..BBBTTTTBBB..
-....BBBBBB....
+BB.....BB
+BTBBBBBTB
+.BKBBBKB.
+.BBTTTBB.
+.BBTKTBB.
+..BBBBB..
 `
 
 // Claude is the orange Claude Code mascot.

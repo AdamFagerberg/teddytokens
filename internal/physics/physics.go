@@ -33,13 +33,13 @@ const (
 
 	// maxSpeed keeps per-step motion below half a body so overlaps are
 	// always resolved along the right axis.
-	maxSpeed        = 180.0
+	maxSpeed        = 150.0
 	bounceThreshold = 20.0 // slower impacts don't bounce
 	wakeSpeed       = 20.0 // faster impacts wake sleeping bodies
 	sleepSpeed      = 2.0
 	sleepDelay      = 0.25 // seconds below sleepSpeed before sleeping
 	margin          = 1.0  // broadphase padding for support checks
-	shakeSpeed      = 150.0
+	shakeSpeed      = 140.0
 	// tipAccel pushes a body whose centre overhangs its support off the
 	// edge, so piles slump instead of balancing on corners.
 	tipAccel = gravity
