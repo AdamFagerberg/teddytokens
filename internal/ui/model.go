@@ -54,25 +54,25 @@ const (
 	giant
 )
 
-// tierScale is each tier's sprite scale when the terminal is big enough.
+// tierScale is each tier's drawing scale when the terminal is big enough.
 var tierScale = [...]int{small: 1, big: 5, giant: 8}
 
-// skin caches one character's tinted sprites so toggling never re-tints.
-type skin struct{ claude, teddy *sprites.Sprite }
+// skin caches one character's tinted shapes so toggling never re-tints.
+type skin struct{ claude, teddy *sprites.Shape }
 
-// char is a character on screen: its sprites and the rigid body of the same
-// size that carries them.
+// char is a character on screen: its shapes, the scale they are drawn at and
+// the rigid body of the same size that carries them.
 type char struct {
 	body    *physics.Rigidbody
 	tier    int
-	tint    float64
+	scale   int
 	skin    skin
 	merging bool
 }
 
 // size is the character's unrotated size.
 func (c *char) size() (w, h int) {
-	return c.skin.claude.W, c.skin.claude.H
+	return c.scale * c.skin.claude.W, c.scale * c.skin.claude.H
 }
 
 // merge is the animation of every character of one tier flying together:
@@ -253,7 +253,7 @@ func (m *Model) pileUp(n int) ([]*char, int) {
 	return cs, n % c
 }
 
-// scale is tierScale[tier], reduced until the sprite is no wider than the
+// scale is tierScale[tier], reduced until the character is no wider than the
 // world and no taller than half of it.
 func (m *Model) scale(tier int) int {
 	ww, wh := m.world.Size()
@@ -266,15 +266,12 @@ func (m *Model) scale(tier int) int {
 
 // newChar returns a character of tier with a random tint and no body.
 func (m *Model) newChar(tier int) *char {
-	c := &char{tier: tier, tint: (m.rng.Float64()*2 - 1) * sprites.MaxVariation}
-	m.reskin(c)
-	return c
-}
-
-// reskin tints c's sprites at its tier's scale for the current world.
-func (m *Model) reskin(c *char) {
-	k := m.scale(c.tier)
-	c.skin = skin{sprites.Claude.Tinted(c.tint).Scaled(k), sprites.Teddy.Tinted(c.tint).Scaled(k)}
+	tint := (m.rng.Float64()*2 - 1) * sprites.MaxVariation
+	return &char{
+		tier:  tier,
+		scale: m.scale(tier),
+		skin:  skin{sprites.Claude.Tinted(tint), sprites.Teddy.Tinted(tint)},
+	}
 }
 
 // addBody gives c an upright body with its top-left corner at (x, y),
@@ -289,13 +286,14 @@ func (m *Model) addBody(c *char, x, y, vx float64) {
 
 // fit gives c a new body if the world's size changed its tier's scale.
 func (m *Model) fit(c *char) {
-	if c.skin.claude.W == m.scale(c.tier)*sprites.Claude.W {
+	k := m.scale(c.tier)
+	if c.scale == k {
 		return
 	}
 	x, y := c.body.Centre()
 	m.world.Remove(c.body)
 	c.body = nil // comes back upright
-	m.reskin(c)
+	c.scale = k
 	m.place(c, x, y)
 }
 
@@ -511,11 +509,11 @@ func (m *Model) render() string {
 			x += (g.x - x) * g.progress
 			y += (g.y - y) * g.progress
 		}
-		sp := c.skin.claude
+		s := c.skin.claude
 		if m.teddy {
-			sp = c.skin.teddy
+			s = c.skin.teddy
 		}
-		m.canvas.BlitRotated(sp, x, y, c.body.Angle())
+		m.canvas.Draw(s, x, y, c.body.Angle(), c.scale)
 	}
 	pile := m.canvas.Render()
 	if len(m.chars) == 0 {

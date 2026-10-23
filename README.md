@@ -112,6 +112,14 @@ go test -race ./...
 golangci-lint run ./...
 ```
 
+The characters are SVG files, `internal/sprites/claude.svg` and
+`internal/sprites/teddy.svg`, embedded at build time. Edit them in any
+editor or by hand: they may only contain `<rect>` elements with a `#RRGGBB`
+fill, painted in order, inside a `viewBox="0 0 9 6"` where one unit is one
+pixel. Both must keep the same size so toggling the skin doesn't change the
+physics. Rects of a single pixel are always drawn as one pixel however the
+character is turned, so use them for eyes and other small details.
+
 ## License
 
 MIT

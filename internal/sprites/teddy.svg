@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 6" width="180" height="120" shape-rendering="crispEdges">
+  <!-- Ears, head and chin. One unit is one pixel. -->
+  <rect x="0" y="0" width="2" height="2" fill="#8B5A2B"/>
+  <rect x="7" y="0" width="2" height="2" fill="#8B5A2B"/>
+  <rect x="1" y="1" width="7" height="4" fill="#8B5A2B"/>
+  <rect x="2" y="5" width="5" height="1" fill="#8B5A2B"/>
+  <!-- Inner ears and muzzle -->
+  <rect x="1" y="1" width="1" height="1" fill="#D2A679"/>
+  <rect x="7" y="1" width="1" height="1" fill="#D2A679"/>
+  <rect x="3" y="3" width="3" height="2" fill="#D2A679"/>
+  <!-- Eyes and nose -->
+  <rect x="2" y="2" width="1" height="1" fill="#1E1E1E"/>
+  <rect x="6" y="2" width="1" height="1" fill="#1E1E1E"/>
+  <rect x="4" y="4" width="1" height="1" fill="#1E1E1E"/>
+</svg>

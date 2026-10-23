@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 6" width="180" height="120" shape-rendering="crispEdges">
+  <!-- Body, then the parts drawn over or next to it. One unit is one pixel. -->
+  <rect x="1" y="0" width="7" height="5" fill="#D97757"/>
+  <!-- Arms and legs are single pixels so rotation never drops them. -->
+  <rect x="0" y="2" width="1" height="1" fill="#D97757"/>
+  <rect x="8" y="2" width="1" height="1" fill="#D97757"/>
+  <rect x="1" y="5" width="1" height="1" fill="#D97757"/>
+  <rect x="3" y="5" width="1" height="1" fill="#D97757"/>
+  <rect x="5" y="5" width="1" height="1" fill="#D97757"/>
+  <rect x="7" y="5" width="1" height="1" fill="#D97757"/>
+  <!-- Eyes -->
+  <rect x="2" y="1" width="1" height="1" fill="#2B2B2B"/>
+  <rect x="6" y="1" width="1" height="1" fill="#2B2B2B"/>
+</svg>
