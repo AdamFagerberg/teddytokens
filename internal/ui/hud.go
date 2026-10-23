@@ -10,16 +10,19 @@ import (
 )
 
 type keyMap struct {
-	Toggle, Replay, Shake, Quit key.Binding
+	Toggle, Replay, Shake, Per, Quit key.Binding
 }
 
-func (k keyMap) ShortHelp() []key.Binding  { return []key.Binding{k.Toggle, k.Replay, k.Shake, k.Quit} }
+func (k keyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Toggle, k.Replay, k.Shake, k.Per, k.Quit}
+}
 func (k keyMap) FullHelp() [][]key.Binding { return [][]key.Binding{k.ShortHelp()} }
 
 var keys = keyMap{
 	Toggle: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "skin")),
 	Replay: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "replay")),
 	Shake:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shake")),
+	Per:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "tokens/char")),
 	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
@@ -28,6 +31,7 @@ var (
 	hudStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#A8A8A8"))
 	numStyle  = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F5F"))
+	hintStyle = hudStyle.Faint(true)
 	separator = hudStyle.Render(" · ")
 )
 
@@ -53,6 +57,7 @@ func (m *Model) hud() string {
 	parts := []string{
 		numStyle.Render(formatTokens(m.total)) + hudStyle.Render(" tokens"),
 		numStyle.Render(strconv.FormatInt(chars, 10)) + hudStyle.Render(" chars"),
+		numStyle.Render(formatTokens(m.spawn.per)) + hudStyle.Render("/char"),
 		m.bar.ViewAs(m.spawn.progress()),
 		hudStyle.Render(m.scope),
 	}

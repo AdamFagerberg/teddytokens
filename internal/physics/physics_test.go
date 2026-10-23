@@ -200,3 +200,22 @@ func TestRemoveDropsWhatItHeld(t *testing.T) {
 		t.Errorf("body left resting at y=%d, want the floor", y)
 	}
 }
+
+func TestOffCentreLandingSkidsSideways(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		offset float64
+		dir    int
+	}{{"left", -5, -1}, {"centred", 0, 0}, {"right", 5, 1}} {
+		w := NewWorld(120, 80)
+		w.AddBody(50, 80-bh, bw, bh, 0)
+		w.Settle(600)
+		top := w.AddBody(50+tc.offset, 20, bw, bh, 0)
+		w.Settle(3000)
+		x, _ := top.Pos()
+		moved := x - int(50+tc.offset)
+		if tc.dir == 0 && moved != 0 || tc.dir*moved < 2 && tc.dir != 0 {
+			t.Errorf("%s landing moved %d px sideways", tc.name, moved)
+		}
+	}
+}

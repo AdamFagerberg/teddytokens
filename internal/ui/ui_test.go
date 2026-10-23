@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -328,5 +330,36 @@ func TestSmallTerminalKeepsMerging(t *testing.T) {
 	}
 	if m.giants < 10 || len(m.chars) > 30 {
 		t.Fatalf("after ten minutes: %d giants, %d characters", m.giants, len(m.chars))
+	}
+}
+
+func TestCyclePer(t *testing.T) {
+	m := newTestModel(0)
+	m.spawn.per, m.spawn.carry = 1_000, 900
+	var got []int64
+	for range 4 {
+		m.cyclePer()
+		got = append(got, m.spawn.per)
+	}
+	if !slices.Equal(got, []int64{10_000, 100, 500, 1_000}) {
+		t.Fatalf("per cycles through %v", got)
+	}
+	if m.spawn.queue != 9 { // 900 carried tokens become 9 characters at 100 each
+		t.Fatalf("queue %d after dropping to 100/char, want 9", m.spawn.queue)
+	}
+	m.spawn.per = 2_000 // a custom --per jumps to the next step up
+	if m.cyclePer(); m.spawn.per != 10_000 {
+		t.Fatalf("2000 cycled to %d, want 10000", m.spawn.per)
+	}
+}
+
+func TestEmptyPileShowsHint(t *testing.T) {
+	m := newTestModel(0)
+	if !strings.Contains(m.render(), "waiting for new tokens") {
+		t.Fatal("empty pile should show the hint")
+	}
+	m.spawnBody()
+	if strings.Contains(m.render(), "waiting for new tokens") {
+		t.Fatal("hint still shown with a character on screen")
 	}
 }

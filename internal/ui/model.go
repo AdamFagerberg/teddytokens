@@ -6,12 +6,14 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/progress"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/harmonica"
 
 	"github.com/AdamFagerberg/teddytokens/internal/physics"
@@ -23,7 +25,7 @@ const (
 	pollInterval = 500 * time.Millisecond
 	hudRows      = 1
 	maxFrameDT   = 0.1  // seconds; longer gaps (e.g. a suspended terminal) are clamped
-	spawnSpeed   = 20.0 // max |vx| of a new character, px/s
+	spawnSpeed   = 50.0 // max |vx| of a new character, px/s
 	settleSteps  = 30 * 60
 )
 
@@ -175,6 +177,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.replay()
 		case key.Matches(msg, keys.Shake):
 			m.shake()
+		case key.Matches(msg, keys.Per):
+			m.cyclePer()
 		}
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
@@ -361,6 +365,18 @@ func (m *Model) shake() {
 	m.world.Shake(m.rng)
 }
 
+// perSteps are the tokens per character that the p key cycles through.
+var perSteps = []int64{100, 500, 1_000, 10_000}
+
+// cyclePer switches to the next step above the current tokens per
+// character, wrapping around. Tokens counted toward the next character
+// carry over.
+func (m *Model) cyclePer() {
+	i, _ := slices.BinarySearch(perSteps, m.spawn.per+1)
+	m.spawn.per = perSteps[i%len(perSteps)]
+	m.spawn.add(0)
+}
+
 func (m *Model) frame(now time.Time) {
 	dt := 0.0
 	if !m.last.IsZero() {
@@ -489,5 +505,12 @@ func (m *Model) render() string {
 		}
 		m.canvas.Blit(sp, x, y)
 	}
-	return m.canvas.Render() + "\n" + m.hud()
+	pile := m.canvas.Render()
+	if len(m.chars) == 0 {
+		cols, rows := m.playSize()
+		lines := strings.Split(pile, "\n")
+		lines[rows/2] = lipgloss.PlaceHorizontal(cols, lipgloss.Center, hintStyle.Render("waiting for new tokens…"))
+		pile = strings.Join(lines, "\n")
+	}
+	return pile + "\n" + m.hud()
 }

@@ -73,6 +73,7 @@ characters per second.
 | `t` | toggle Claude / teddy skin (in place, the pile isn't disturbed) |
 | `r` | replay: drop every character again from the top |
 | `s` | shake: throw every character into the air |
+| `p` | cycle tokens per character: 100 → 500 → 1,000 → 10,000 (starts at `--per`) |
 | `q`, `Ctrl-C` | quit |
 
 ## How tokens are counted

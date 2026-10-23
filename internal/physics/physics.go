@@ -40,6 +40,9 @@ const (
 	sleepDelay      = 0.25 // seconds below sleepSpeed before sleeping
 	margin          = 1.0  // broadphase padding for support checks
 	shakeSpeed      = 140.0
+	// deflect turns part of a landing's speed into a sideways knock toward
+	// the side the body hit, so off-centre landings skid off and scatter.
+	deflect = 0.8
 	// tipAccel pushes a body whose centre overhangs its support off the
 	// edge, so piles slump instead of balancing on corners.
 	tipAccel = gravity
@@ -386,6 +389,10 @@ func (w *World) updateVelocities(dt float64) {
 		d := max(-limit, min(limit, *bt-*at))
 		*at += d * c.wa / sum
 		*bt -= d * c.wb / sum
+		if c.vertical && c.approach > bounceThreshold && c.wa > 0 {
+			off := (a.x + a.w/2) - (b.x + b.w/2)
+			a.vx += deflect * c.approach * max(-1, min(1, off/(b.w/2)))
+		}
 	}
 	w.findSupports()
 	for _, b := range w.bodies {
