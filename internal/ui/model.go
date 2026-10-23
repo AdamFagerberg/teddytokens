@@ -80,7 +80,7 @@ type Model struct {
 	skins         []skin // parallel to world.Bodies()
 	last          time.Time
 	acc           float64 // unsimulated time, seconds
-	resized       bool    // the pile has not settled since a resize
+	disturbed     bool    // the pile has not settled since a resize or shake
 
 	squash       *squash
 	squashSpring harmonica.Spring
@@ -138,6 +138,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.teddy = !m.teddy
 		case key.Matches(msg, keys.Replay):
 			m.replay()
+		case key.Matches(msg, keys.Shake):
+			m.shake()
 		}
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
@@ -180,7 +182,7 @@ func (m *Model) resize(width, height int) {
 	m.canvas = sprites.NewCanvas(cols, rows)
 	if m.world != nil {
 		m.world.Resize(cols, 2*rows)
-		m.resized = true
+		m.disturbed = true
 		return
 	}
 	m.world = physics.NewWorld(cols, 2*rows)
@@ -251,6 +253,16 @@ func (m *Model) replay() {
 	m.dropRows(len(m.skins), 0)
 }
 
+// shake throws every character up and sideways. A pile that lands taller
+// and reaches the top is cleared without counting, as after a resize.
+func (m *Model) shake() {
+	if m.world == nil || m.squash != nil {
+		return
+	}
+	m.world.Shake(m.rng)
+	m.disturbed = true
+}
+
 func (m *Model) frame(now time.Time) {
 	dt := 0.0
 	if !m.last.IsZero() {
@@ -271,9 +283,9 @@ func (m *Model) frame(now time.Time) {
 		m.world.Step(physics.TimeStep)
 	}
 	if top, ok := m.world.HighestRestingTop(); ok && top <= 0 {
-		m.squash = &squash{scale: 1, counts: !m.resized}
+		m.squash = &squash{scale: 1, counts: !m.disturbed}
 	} else if m.world.Settled() {
-		m.resized = false
+		m.disturbed = false
 	}
 }
 

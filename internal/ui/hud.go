@@ -10,15 +10,16 @@ import (
 )
 
 type keyMap struct {
-	Toggle, Replay, Quit key.Binding
+	Toggle, Replay, Shake, Quit key.Binding
 }
 
-func (k keyMap) ShortHelp() []key.Binding  { return []key.Binding{k.Toggle, k.Replay, k.Quit} }
+func (k keyMap) ShortHelp() []key.Binding  { return []key.Binding{k.Toggle, k.Replay, k.Shake, k.Quit} }
 func (k keyMap) FullHelp() [][]key.Binding { return [][]key.Binding{k.ShortHelp()} }
 
 var keys = keyMap{
 	Toggle: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "skin")),
 	Replay: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "replay")),
+	Shake:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "shake")),
 	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 

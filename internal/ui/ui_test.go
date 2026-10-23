@@ -129,6 +129,10 @@ func TestKeys(t *testing.T) {
 	if !m.teddy || m.skins[0] != before || !m.world.Settled() {
 		t.Fatal("t should re-skin in place without touching physics")
 	}
+	press('s')
+	if m.world.Settled() || !m.disturbed {
+		t.Fatal("s should wake the pile and mark it disturbed")
+	}
 	press('r')
 	if len(m.world.Bodies()) != 5 || m.skins[0] != before {
 		t.Fatal("r should drop the same characters again")
@@ -180,8 +184,8 @@ func TestShrinkOverflowDoesNotCount(t *testing.T) {
 	if m.cleared != 0 || len(m.world.Bodies()) != 0 {
 		t.Fatalf("after shrinking: cleared %d, %d bodies left", m.cleared, len(m.world.Bodies()))
 	}
-	if m.resized {
-		t.Fatal("resize flag still set once the world is empty")
+	if m.disturbed {
+		t.Fatal("disturbed flag still set once the world is empty")
 	}
 }
 

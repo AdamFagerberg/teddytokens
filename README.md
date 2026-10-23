@@ -24,6 +24,18 @@ With Go 1.27 or newer:
 go install github.com/AdamFagerberg/teddytokens@latest
 ```
 
+### From a clone
+
+```sh
+go run . --demo      # try it straight from the repo
+go install .         # build and install to $(go env GOPATH)/bin
+```
+
+By default teddytokens tracks the session of the directory it is started in,
+so `go run .` inside the repo only shows sessions for the repo itself. To
+watch another project, `go install .` once (with `$(go env GOPATH)/bin` on
+your `PATH`) and run `teddytokens` from that project.
+
 ## Usage
 
 Run it in a spare pane in the project you're working on with Claude Code:
@@ -57,6 +69,7 @@ characters per second.
 | --- | --- |
 | `t` | toggle Claude / teddy skin (in place, the pile isn't disturbed) |
 | `r` | replay: drop the whole pile again from the top |
+| `s` | shake: throw every character into the air |
 | `q`, `Ctrl-C` | quit |
 
 ## How tokens are counted

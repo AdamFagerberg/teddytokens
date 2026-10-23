@@ -145,3 +145,28 @@ func BenchmarkStep500Awake(b *testing.B) {
 		w.Step(TimeStep)
 	}
 }
+
+func TestShakeLaunchesAndResettles(t *testing.T) {
+	w := NewWorld(120, 80)
+	rng := rand.New(rand.NewPCG(5, 6))
+	drop(w, 30, rng)
+	w.Settle(3000)
+	before, _ := w.HighestRestingTop()
+	w.Shake(rng)
+	if w.Settled() {
+		t.Fatal("shake left bodies asleep")
+	}
+	w.Step(TimeStep)
+	for i, b := range w.Bodies() {
+		if b.vy >= 0 {
+			t.Fatalf("body %d not thrown upward: vy=%v", i, b.vy)
+		}
+	}
+	if !w.Settle(3000) {
+		t.Fatal("pile did not resettle after a shake")
+	}
+	checkPile(t, w)
+	if after, _ := w.HighestRestingTop(); after < before-3*bh {
+		t.Errorf("pile top went from %d to %d after a shake", before, after)
+	}
+}

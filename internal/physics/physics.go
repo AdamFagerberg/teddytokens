@@ -17,6 +17,7 @@ package physics
 import (
 	"cmp"
 	"math"
+	"math/rand/v2"
 	"slices"
 )
 
@@ -38,6 +39,7 @@ const (
 	sleepSpeed      = 2.0
 	sleepDelay      = 0.25 // seconds below sleepSpeed before sleeping
 	margin          = 1.0  // broadphase padding for support checks
+	shakeSpeed      = 150.0
 	// tipAccel pushes a body whose centre overhangs its support off the
 	// edge, so piles slump instead of balancing on corners.
 	tipAccel = gravity
@@ -164,6 +166,16 @@ func (w *World) Resize(width, height int) {
 	}
 	for _, b := range w.bodies {
 		b.px, b.py = b.x, b.y
+	}
+}
+
+// Shake wakes every body and kicks it upward and sideways at a random
+// speed below maxSpeed, so the whole pile jumps and falls back.
+func (w *World) Shake(r *rand.Rand) {
+	for _, b := range w.bodies {
+		b.wake()
+		b.vx = (r.Float64()*2 - 1) * shakeSpeed / 2
+		b.vy = -shakeSpeed * (0.5 + r.Float64()/2)
 	}
 }
 
