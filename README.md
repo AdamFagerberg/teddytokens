@@ -2,10 +2,7 @@
 
 A terminal toy that shows how many Claude Code tokens you've spent. Every
 1,000 tokens a pixel-art character drops from the top of the terminal and
-lands on a pile with real (home-made) physics: every character is a rigid
-body, so off-centre landings send it spinning, it tumbles off the others and
-comes to rest at any angle, leaning on or wedged between its neighbours.
-When the pile reaches the top
+lands on a pile with real (home-made) physics. When the pile reaches the top
 the characters merge into a big one; three big ones merge into a giant. There
 is only ever one giant on screen: later ones join it, and the `N giants`
 counter in the status bar keeps score.
@@ -75,7 +72,7 @@ characters per second.
 | --- | --- |
 | `t` | toggle Claude / teddy skin (in place, the pile isn't disturbed) |
 | `r` | replay: drop every character again from the top |
-| `s` | shake: throw every character into the air, spinning |
+| `s` | shake: throw every character into the air |
 | `p` | cycle tokens per character: 100 → 500 → 1,000 → 10,000 (starts at `--per`) |
 | `q`, `Ctrl-C` | quit |
 
@@ -111,14 +108,6 @@ go run . --demo
 go test -race ./...
 golangci-lint run ./...
 ```
-
-The characters are SVG files, `internal/sprites/claude.svg` and
-`internal/sprites/teddy.svg`, embedded at build time. Edit them in any
-editor or by hand: they may only contain `<rect>` elements with a `#RRGGBB`
-fill, painted in order, inside a `viewBox="0 0 9 6"` where one unit is one
-pixel. Both must keep the same size so toggling the skin doesn't change the
-physics. Rects of a single pixel are always drawn as one pixel however the
-character is turned, so use them for eyes and other small details.
 
 ## License
 

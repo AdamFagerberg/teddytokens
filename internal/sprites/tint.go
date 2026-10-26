@@ -6,18 +6,20 @@ import "math"
 // of the full HSL lightness range.
 const MaxVariation = 0.08
 
-// Tinted returns a copy of s with every color's HSL lightness shifted by f,
+// Tinted returns a copy of s with every pixel's HSL lightness shifted by f,
 // clamped to [-MaxVariation, MaxVariation]. Callers should cache the result
-// per character rather than tinting every frame.
-func (s *Shape) Tinted(f float64) *Shape {
+// per body rather than tinting every frame.
+func (s *Sprite) Tinted(f float64) *Sprite {
 	f = max(-MaxVariation, min(MaxVariation, f))
-	t := *s
-	t.palette = make([]Color, len(s.palette))
-	for i, c := range s.palette {
-		h, sat, l := toHSL(c)
-		t.palette[i] = fromHSL(h, sat, max(0, min(1, l+f)))
+	t := &Sprite{W: s.W, H: s.H, pix: make([]Color, len(s.pix))}
+	for i, c := range s.pix {
+		if c.Opaque {
+			h, sat, l := toHSL(c)
+			c = fromHSL(h, sat, max(0, min(1, l+f)))
+		}
+		t.pix[i] = c
 	}
-	return &t
+	return t
 }
 
 // toHSL converts c to hue in [0, 6), saturation and lightness in [0, 1].
